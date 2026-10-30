@@ -1,0 +1,58 @@
+# Local first: `docker compose up -d postgres` then `npm run dev`.
+# Produção (depois): deploy em /docker/medica-certo na VPS, Traefik host medica-certo.altamir.dev.
+name: medica-certo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medica
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medica}
+      POSTGRES_DB: medica_certo
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U medica -d medica_certo']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    mem_limit: 256m
+
+  app:
+    profiles: ['full']
+    build: .
+    image: medica-certo:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      HOST: 0.0.0.0
+      PUBLIC_HOST: ${PUBLIC_HOST:-medica-certo.altamir.dev}
+      DATABASE_URL: postgres://medica:${POSTGRES_PASSWORD:-medica}@postgres:5432/medica_certo
+    ports:
+      - '${APP_PORT:-8080}:8080'
+    volumes:
+      - ./data/med-photos:/app/data/med-photos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Labels prontas para a VPS (Traefik). Em localhost o profile full publica a porta 8080.
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=medica-certo_edge
+      - traefik.http.routers.medica-certo.rule=Host(`medica-certo.altamir.dev`)
+      - traefik.http.routers.medica-certo.entrypoints=websecure
+      - traefik.http.routers.medica-certo.tls=true
+      - traefik.http.routers.medica-certo.tls.certresolver=letsencrypt
+      - traefik.http.routers.medica-certo.service=medica-certo
+      - traefik.http.services.medica-certo.loadbalancer.server.port=8080
+    mem_limit: 512m
+    networks: [default, edge]
+
+networks:
+  edge: {}
