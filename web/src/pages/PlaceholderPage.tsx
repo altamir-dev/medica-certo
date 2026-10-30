@@ -78,7 +78,7 @@ export function PlaceholderPage({ title, description, showHealth = false }: Prop
                 {health.service}
               </span>
               <span className="portal-tag portal-tag--primary">
-                bootstrap
+                autenticado
               </span>
             </>
           ) : null}

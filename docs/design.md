@@ -4,7 +4,7 @@
 |---|---|
 | **Autor** | TBD |
 | **Data** | 2026-10-30 |
-| **Status** | Draft |
+| **Status** | Approved |
 | **Escopo** | MVP completo (fases 1–5 do roadmap) |
 | **Idioma** | pt-BR |
 | **Refs** | `docs/prd.md`, `CONTEXT.md`, `docs/roadmap.md` |

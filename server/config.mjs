@@ -30,6 +30,14 @@ loadDotEnv();
 
 const nodeEnv = process.env.NODE_ENV ?? 'development';
 
+const cookieSecureEnv = process.env.COOKIE_SECURE;
+const cookieSecure =
+  cookieSecureEnv === '1' || cookieSecureEnv === 'true'
+    ? true
+    : cookieSecureEnv === '0' || cookieSecureEnv === 'false'
+      ? false
+      : nodeEnv === 'production';
+
 export const config = {
   nodeEnv,
   isProd: nodeEnv === 'production',
@@ -41,4 +49,9 @@ export const config = {
     'postgres://medica:medica@127.0.0.1:5432/medica_certo',
   webDistDir: resolve(rootDir, 'web', 'dist'),
   dataDir: resolve(rootDir, 'data'),
+  sessionDays: Number(process.env.SESSION_DAYS ?? 30),
+  cookieSecure,
+  bootstrapEmail: process.env.BOOTSTRAP_EMAIL ?? '',
+  bootstrapPassword: process.env.BOOTSTRAP_PASSWORD ?? '',
+  bootstrapName: process.env.BOOTSTRAP_NAME ?? 'Cuidador',
 };

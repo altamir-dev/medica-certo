@@ -46,6 +46,7 @@
   align-items: center;
   gap: var(--space-1);
   width: 100%;
+  flex: 1;
 }
 
 .portal-menu__item {
@@ -86,6 +87,10 @@
   flex-shrink: 0;
 }
 
+.portal-menu__item--button {
+  margin-top: auto;
+}
+
 .portal-header {
   grid-area: header;
   display: flex;
@@ -101,6 +106,12 @@
   font-size: var(--font-sm);
   font-weight: 600;
   color: var(--ink);
+}
+
+.portal-header__user {
+  font-size: var(--font-xxxs);
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .portal-header__meta {

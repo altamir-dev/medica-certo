@@ -3,15 +3,30 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { config } from './config.mjs';
 import { closeDb } from './db.mjs';
+import { runMigrations } from './migrate.mjs';
+import { maybeSeedBootstrap } from './auth.mjs';
+import { authGuardPlugin } from './plugins/auth-guard.mjs';
 import { healthRoutes } from './routes/health.mjs';
+import { authRoutes } from './routes/auth.mjs';
 
 const app = Fastify({
   logger: {
     level: config.isProd ? 'info' : 'debug',
   },
+  trustProxy: config.isProd,
 });
 
+try {
+  await runMigrations(app.log);
+  await maybeSeedBootstrap(app.log);
+} catch (err) {
+  app.log.error(err, 'failed to migrate or seed');
+  process.exit(1);
+}
+
+await app.register(authGuardPlugin);
 await app.register(healthRoutes);
+await app.register(authRoutes);
 
 if (config.isProd && existsSync(config.webDistDir)) {
   await app.register(fastifyStatic, {

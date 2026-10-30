@@ -1,10 +1,15 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   House,
   Users,
   Pill,
   GearSix,
+  SignOut,
+  Moon,
+  Sun,
 } from '@phosphor-icons/react';
+import { useAuth } from '../auth/AuthContext';
+import { useTheme } from '../theme/useTheme';
 import './PortalShell.css';
 
 const NAV_ITEMS: Array<{
@@ -36,7 +41,16 @@ function formatNow() {
 
 export function PortalShell() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const auth = useAuth();
+  const [theme, toggleTheme] = useTheme();
   const title = TITLE_BY_PATH[location.pathname] ?? 'Medica Certo';
+  const ThemeIcon = theme === 'dark' ? Sun : Moon;
+
+  async function handleLogout() {
+    await auth.logout();
+    navigate('/login', { replace: true });
+  }
 
   return (
     <div className="portal-shell">
@@ -58,11 +72,35 @@ export function PortalShell() {
               <span>{label}</span>
             </NavLink>
           ))}
+          <button
+            type="button"
+            className="portal-menu__item portal-menu__item--button"
+            onClick={toggleTheme}
+            aria-label="Alternar tema claro/escuro"
+          >
+            <ThemeIcon weight="regular" aria-hidden="true" />
+            <span>Tema</span>
+          </button>
+          <button
+            type="button"
+            className="portal-menu__item"
+            onClick={() => {
+              void handleLogout();
+            }}
+          >
+            <SignOut weight="regular" aria-hidden="true" />
+            <span>Sair</span>
+          </button>
         </nav>
       </aside>
 
       <header className="portal-header">
-        <h1 className="portal-header__title">{title}</h1>
+        <div>
+          <h1 className="portal-header__title">{title}</h1>
+          {auth.caregiver ? (
+            <p className="portal-header__user">{auth.caregiver.name}</p>
+          ) : null}
+        </div>
         <p className="portal-header__meta">{formatNow()}</p>
       </header>
 
