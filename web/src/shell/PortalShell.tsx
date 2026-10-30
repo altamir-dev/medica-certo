@@ -24,12 +24,15 @@ const NAV_ITEMS: Array<{
   { to: '/configuracoes', label: 'Configurações', icon: GearSix },
 ];
 
-const TITLE_BY_PATH: Record<string, string> = {
-  '/': 'Dashboard',
-  '/pacientes': 'Pacientes',
-  '/medicamentos': 'Medicamentos',
-  '/configuracoes': 'Configurações',
-};
+function titleForPath(pathname: string) {
+  if (pathname === '/') return 'Dashboard';
+  if (pathname === '/pacientes/novo') return 'Novo paciente';
+  if (pathname.startsWith('/pacientes/')) return 'Editar paciente';
+  if (pathname.startsWith('/pacientes')) return 'Pacientes';
+  if (pathname.startsWith('/medicamentos')) return 'Medicamentos';
+  if (pathname.startsWith('/configuracoes')) return 'Configurações';
+  return 'Medica Certo';
+}
 
 function formatNow() {
   return new Intl.DateTimeFormat('pt-BR', {
@@ -44,7 +47,7 @@ export function PortalShell() {
   const navigate = useNavigate();
   const auth = useAuth();
   const [theme, toggleTheme] = useTheme();
-  const title = TITLE_BY_PATH[location.pathname] ?? 'Medica Certo';
+  const title = titleForPath(location.pathname);
   const ThemeIcon = theme === 'dark' ? Sun : Moon;
 
   async function handleLogout() {

@@ -8,6 +8,7 @@ import { maybeSeedBootstrap } from './auth.mjs';
 import { authGuardPlugin } from './plugins/auth-guard.mjs';
 import { healthRoutes } from './routes/health.mjs';
 import { authRoutes } from './routes/auth.mjs';
+import { patientsRoutes } from './routes/patients.mjs';
 
 const app = Fastify({
   logger: {
@@ -27,6 +28,7 @@ try {
 await app.register(authGuardPlugin);
 await app.register(healthRoutes);
 await app.register(authRoutes);
+await app.register(patientsRoutes);
 
 if (config.isProd && existsSync(config.webDistDir)) {
   await app.register(fastifyStatic, {

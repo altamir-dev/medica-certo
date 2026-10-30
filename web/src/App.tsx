@@ -4,6 +4,8 @@ import { RequireAuth } from './auth/RequireAuth';
 import { PortalShell } from './shell/PortalShell';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { LoginPage } from './pages/LoginPage';
+import { PatientsPage } from './pages/PatientsPage';
+import { PatientFormPage } from './pages/PatientFormPage';
 
 export function App() {
   return (
@@ -19,20 +21,14 @@ export function App() {
                 element={
                   <PlaceholderPage
                     title="Bem-vindo ao Medica Certo"
-                    description="Você está autenticado. Próximo passo: cadastro de pacientes (PR3)."
+                    description="Você está autenticado. Cadastre pacientes em Pacientes; medicamentos entram na PR4."
                     showHealth
                   />
                 }
               />
-              <Route
-                path="pacientes"
-                element={
-                  <PlaceholderPage
-                    title="Pacientes"
-                    description="Cadastro de pacientes entra na PR3."
-                  />
-                }
-              />
+              <Route path="pacientes" element={<PatientsPage />} />
+              <Route path="pacientes/novo" element={<PatientFormPage />} />
+              <Route path="pacientes/:id" element={<PatientFormPage />} />
               <Route
                 path="medicamentos"
                 element={

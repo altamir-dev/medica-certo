@@ -15,8 +15,8 @@ Folha + despertadores  →  MVP utilizável no dia a dia  →  Multi-cuidador e 
 
 | Fase | Nome | Resultado para o cuidador | Status |
 |---|---|---|---|
-| 0 | Fundação | PRD validado + design aprovado + projeto sobe | PR1+PR2 prontos — próximo: PR3 pacientes / VPS |
-| 1 | Identidade e cadastros | Login; cadastra pacientes e medicamentos | Pendente |
+| 0 | Fundação | PRD validado + design aprovado + projeto sobe | PR1–PR3 prontos — próximo: PR4 medicamentos / VPS |
+| 1 | Identidade e cadastros | Login; cadastra pacientes e medicamentos | Auth + pacientes prontos; medicamentos pendente |
 | 2 | Tratamento e grade | Configura esquema e vê a grade (substitui a folha) | Pendente |
 | 3 | Dia a dia | Dashboard + marcar dose / pular (substitui o X) | Pendente |
 | 4 | Alarmes | Notificações no app (substitui despertadores) | Pendente |
@@ -201,4 +201,5 @@ Fase 4 pode iniciar em paralelo o spike de Web Push/PWA assim que a Fase 0 fecha
 2. ~~Documento de design~~ → `docs/design.md` (aprovado no loop writer/reviewer; UI com CSS variables; host `medica-certo.altamir.dev`)
 3. ~~**PR1 — Bootstrap**~~ monorepo + casco visual em localhost (`npm run dev`; host alvo `medica-certo.altamir.dev`)
 4. ~~**PR2 — Auth**~~ e-mail/senha + sessão cookie (`docs/adr/003-auth-session.md`)
-5. Em seguida PR3 Pacientes; depois deploy VPS e fases 1–5 conforme o plano de PRs
+5. ~~**PR3 — Pacientes**~~ CRUD + UI `/pacientes` (R2)
+6. Em seguida PR4 Medicamentos; depois deploy VPS e fases 2–5 conforme o plano de PRs
