@@ -34,10 +34,25 @@ export function nearestSlot(slots: string[], now = new Date()): string | null {
   return best;
 }
 
-export function formatNowRealtime(now = new Date()): string {
+/** Date line without time (stable width while seconds tick). */
+export function formatNowDate(now = new Date()): string {
   return new Intl.DateTimeFormat('pt-BR', {
     dateStyle: 'full',
-    timeStyle: 'medium',
     timeZone: 'America/Sao_Paulo',
   }).format(now);
+}
+
+/** HH:MM:SS with always-2-digit parts (tabular-friendly). */
+export function formatNowTime(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+}
+
+export function formatNowRealtime(now = new Date()): string {
+  return `${formatNowDate(now)} · ${formatNowTime(now)}`;
 }

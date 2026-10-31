@@ -22,7 +22,7 @@ import {
   type SheetChip,
 } from '../api/doses';
 import { nearestSlot } from '../lib/clock';
-import { useNow } from '../lib/useNow';
+import { useNowMinute } from '../lib/useNow';
 import './PatientsPage.css';
 import './Treatments.css';
 import './PatientSheet.css';
@@ -107,7 +107,7 @@ const GRID_CELLS = GRID_ROWS * GRID_COLS;
 
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const now = useNow(1000);
+  const now = useNowMinute();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [sheet, setSheet] = useState<PatientSheet | null>(null);
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);

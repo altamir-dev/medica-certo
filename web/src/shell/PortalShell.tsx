@@ -11,8 +11,22 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/useTheme';
 import { useNow } from '../lib/useNow';
-import { formatNowRealtime } from '../lib/clock';
+import { formatNowDate, formatNowTime } from '../lib/clock';
 import './PortalShell.css';
+
+/** Own tick so the shell/Outlet do not re-render every second. */
+function HeaderClock() {
+  const now = useNow(1000);
+  return (
+    <p className="portal-header__meta" aria-live="polite">
+      <span className="portal-header__date">{formatNowDate(now)}</span>
+      <span className="portal-header__sep" aria-hidden="true">
+        ·
+      </span>
+      <span className="portal-header__time">{formatNowTime(now)}</span>
+    </p>
+  );
+}
 
 const NAV_ITEMS: Array<{
   to: string;
@@ -46,7 +60,6 @@ export function PortalShell() {
   const navigate = useNavigate();
   const auth = useAuth();
   const [theme, toggleTheme] = useTheme();
-  const now = useNow(1000);
   const title = titleForPath(location.pathname);
   const ThemeIcon = theme === 'dark' ? Sun : Moon;
 
@@ -104,9 +117,7 @@ export function PortalShell() {
             <p className="portal-header__user">{auth.caregiver.name}</p>
           ) : null}
         </div>
-        <p className="portal-header__meta" aria-live="polite">
-          {formatNowRealtime(now)}
-        </p>
+        <HeaderClock />
       </header>
 
       <main className="portal-main">

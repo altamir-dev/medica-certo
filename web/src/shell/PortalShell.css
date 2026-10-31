@@ -115,9 +115,38 @@
 }
 
 .portal-header__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0;
   font-size: var(--font-xxs);
   font-weight: 500;
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.portal-header__date {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.portal-header__sep {
+  flex-shrink: 0;
+}
+
+.portal-header__time {
+  flex-shrink: 0;
+  min-width: 8ch;
+  font-size: 1.85em;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  letter-spacing: 0;
+  text-align: left;
+  color: var(--ink);
 }
 
 .portal-main {

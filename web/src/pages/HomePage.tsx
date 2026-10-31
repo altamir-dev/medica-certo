@@ -16,7 +16,7 @@ import {
 } from '../api/dashboard';
 import { administerDose, updateAdministration } from '../api/doses';
 import { nearestSlot } from '../lib/clock';
-import { useNow } from '../lib/useNow';
+import { useNowMinute } from '../lib/useNow';
 import './PatientsPage.css';
 import './Treatments.css';
 import './PatientSheet.css';
@@ -81,7 +81,7 @@ type SlotModal = {
 
 export function HomePage() {
   const navigate = useNavigate();
-  const now = useNow(1000);
+  const now = useNowMinute();
   const [calendar, setCalendar] = useState<CaregiverCalendar | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusPatientId, setFocusPatientId] = useState<string | null>(null);
