@@ -1,5 +1,7 @@
 import { apiFetch } from './client';
 
+export type PatientAccess = 'owner' | 'grantee';
+
 export type Patient = {
   id: string;
   name: string;
@@ -8,6 +10,8 @@ export type Patient = {
   sleepEnd: string;
   createdAt: string;
   updatedAt: string;
+  access?: PatientAccess;
+  ownerCaregiverId?: string;
 };
 
 export type PatientInput = {

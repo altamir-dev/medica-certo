@@ -8,6 +8,14 @@ import {
   type Invite,
   type InviteStatus,
 } from '../api/invites';
+import {
+  fetchAccessGrantees,
+  fetchGranteeAccess,
+  revokeGranteeAccess,
+  updateGranteeAccess,
+  type AccessGrantee,
+} from '../api/patientAccess';
+import { listPatients, type Patient } from '../api/patients';
 
 const STATUS_LABEL: Record<InviteStatus, string> = {
   pending: 'Pendente',
@@ -38,9 +46,12 @@ function statusDetail(invite: Invite) {
 }
 
 export function InvitesCard() {
+  const [ownedPatients, setOwnedPatients] = useState<Patient[]>([]);
+  const [selectedPatients, setSelectedPatients] = useState<string[]>([]);
   const [email, setEmail] = useState('');
   const [days, setDays] = useState(7);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [grantees, setGrantees] = useState<AccessGrantee[]>([]);
   const [link, setLink] = useState<string | null>(null);
   const [linkInviteId, setLinkInviteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,8 +62,18 @@ export function InvitesCard() {
     typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   const reload = useCallback(async () => {
-    const list = await fetchInvites();
+    const [list, access, patients] = await Promise.all([
+      fetchInvites(),
+      fetchAccessGrantees(),
+      listPatients(),
+    ]);
     setInvites(list.invites);
+    setGrantees(access.grantees);
+    const owned = patients.filter((p) => p.access !== 'grantee');
+    setOwnedPatients(owned);
+    setSelectedPatients((prev) =>
+      prev.filter((id) => owned.some((p) => p.id === id)),
+    );
   }, []);
 
   useEffect(() => {
@@ -76,6 +97,12 @@ export function InvitesCard() {
     };
   }, [reload]);
 
+  function togglePatient(id: string) {
+    setSelectedPatients((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
   async function onCreate(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -83,12 +110,14 @@ export function InvitesCard() {
     setMessage(null);
     try {
       const created = await createInvite({
-        email: email.trim() || undefined,
+        email: email.trim(),
+        patientIds: selectedPatients,
         expiresInDays: days,
       });
       setLink(inviteUrl(created.token));
       setLinkInviteId(created.invite.id);
       setEmail('');
+      setSelectedPatients([]);
       setMessage('Convite gerado. Copie o link agora — ele não aparece de novo.');
       await reload();
     } catch (err) {
@@ -117,7 +146,7 @@ export function InvitesCard() {
     try {
       await navigator.share({
         title: 'Convite — Medica Certo',
-        text: 'Crie sua conta de cuidador no Medica Certo.',
+        text: 'Aceite o convite para ver e registrar doses no Medica Certo.',
         url: link,
       });
     } catch (err) {
@@ -148,12 +177,67 @@ export function InvitesCard() {
     }
   }
 
+  async function onRevokeGrantee(grantee: AccessGrantee) {
+    if (
+      !window.confirm(
+        `Revogar todo o acesso de ${grantee.name}? A conta dela continua existindo.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeGranteeAccess(grantee.caregiverId);
+      setMessage('Acesso revogado.');
+      await reload();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Não foi possível revogar.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUpdateGranteePatients(
+    grantee: AccessGrantee,
+    patientIds: string[],
+  ) {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateGranteeAccess(grantee.caregiverId, patientIds);
+      setMessage('Pacientes atualizados.');
+      await reload();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Não foi possível atualizar.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (ownedPatients.length === 0) {
+    return (
+      <div className="portal-card settings-card">
+        <h3 className="settings-card__title">Compartilhar pacientes</h3>
+        <p className="settings-hint">
+          Cadastre um paciente seu para convidar outra pessoa a ver a grade e
+          registrar doses.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="portal-card settings-card">
-      <h3 className="settings-card__title">Convites</h3>
+      <h3 className="settings-card__title">Compartilhar pacientes</h3>
       <p className="settings-hint">
-        Gere um link para outra pessoa criar a própria conta de cuidador. O
-        link vale uma vez. Cada cuidador vê só os próprios pacientes.
+        Gere um link para outra pessoa criar conta ou entrar com o e-mail
+        indicado. Ela verá só os pacientes marcados e poderá registrar doses e
+        anotações. O link vale uma vez.
       </p>
 
       {error ? (
@@ -169,7 +253,7 @@ export function InvitesCard() {
 
       <form className="invite-form" onSubmit={onCreate}>
         <label className="patients-field">
-          <span>E-mail do convidado (opcional)</span>
+          <span>E-mail do convidado</span>
           <input
             className="patients-input"
             type="email"
@@ -177,11 +261,28 @@ export function InvitesCard() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="pessoa@example.com"
+            required
           />
-          <span className="patients-field__hint">
-            Se preencher, só esse e-mail consegue usar o link.
-          </span>
         </label>
+        <fieldset className="invite-patients">
+          <legend className="patients-field">
+            <span>Pacientes no convite</span>
+          </legend>
+          <ul className="invite-patient-list">
+            {ownedPatients.map((p) => (
+              <li key={p.id}>
+                <label className="invite-patient-check">
+                  <input
+                    type="checkbox"
+                    checked={selectedPatients.includes(p.id)}
+                    onChange={() => togglePatient(p.id)}
+                  />
+                  {p.name}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
         <label className="patients-field">
           <span>Validade</span>
           <select
@@ -198,7 +299,7 @@ export function InvitesCard() {
         <button
           type="submit"
           className="patients-btn patients-btn--primary"
-          disabled={busy}
+          disabled={busy || selectedPatients.length === 0 || !email.trim()}
         >
           {busy ? 'Aguarde…' : 'Gerar convite'}
         </button>
@@ -244,7 +345,7 @@ export function InvitesCard() {
         </div>
       ) : null}
 
-      <h4 className="settings-sub">Convites enviados</h4>
+      <h4 className="settings-sub">Convites pendentes</h4>
       {loading ? (
         <p className="settings-hint">Carregando…</p>
       ) : invites.length === 0 ? (
@@ -257,9 +358,7 @@ export function InvitesCard() {
                 <span className={`invite-status invite-status--${invite.status}`}>
                   {STATUS_LABEL[invite.status]}
                 </span>
-                <p className="invite-row__email">
-                  {invite.email ?? 'Qualquer e-mail'}
-                </p>
+                <p className="invite-row__email">{invite.email ?? '—'}</p>
                 <p className="settings-hint">{statusDetail(invite)}</p>
               </div>
               {invite.status === 'pending' || invite.status === 'expired' ? (
@@ -278,6 +377,113 @@ export function InvitesCard() {
           ))}
         </ul>
       )}
+
+      <h4 className="settings-sub">Quem já tem acesso</h4>
+      {grantees.length === 0 ? (
+        <p className="settings-hint">Ninguém com acesso compartilhado ainda.</p>
+      ) : (
+        <ul className="invite-list">
+          {grantees.map((g) => (
+            <GranteeRow
+              key={g.caregiverId}
+              grantee={g}
+              ownedPatients={ownedPatients}
+              busy={busy}
+              onRevoke={() => {
+                void onRevokeGrantee(g);
+              }}
+              onSave={(ids) => {
+                void onUpdateGranteePatients(g, ids);
+              }}
+            />
+          ))}
+        </ul>
+      )}
     </div>
+  );
+}
+
+function GranteeRow({
+  grantee,
+  ownedPatients,
+  busy,
+  onRevoke,
+  onSave,
+}: {
+  grantee: AccessGrantee;
+  ownedPatients: Patient[];
+  busy: boolean;
+  onRevoke: () => void;
+  onSave: (patientIds: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchGranteeAccess(grantee.caregiverId)
+      .then((detail) => setSelected(detail.access.patientIds))
+      .catch(() => setSelected([]));
+  }, [open, grantee.caregiverId]);
+
+  return (
+    <li className="invite-row">
+      <div className="invite-row__main">
+        <p className="invite-row__email">
+          {grantee.name} · {grantee.email}
+        </p>
+        <p className="settings-hint">Desde {formatWhen(grantee.since)}</p>
+        {open ? (
+          <ul className="invite-patient-list">
+            {ownedPatients.map((p) => (
+              <li key={p.id}>
+                <label className="invite-patient-check">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(p.id)}
+                    onChange={() =>
+                      setSelected((prev) =>
+                        prev.includes(p.id)
+                          ? prev.filter((x) => x !== p.id)
+                          : [...prev, p.id],
+                      )
+                    }
+                  />
+                  {p.name}
+                </label>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      <div className="settings-actions">
+        <button
+          type="button"
+          className="patients-btn patients-btn--secondary"
+          disabled={busy}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? 'Fechar' : 'Editar pacientes'}
+        </button>
+        {open ? (
+          <button
+            type="button"
+            className="patients-btn patients-btn--primary"
+            disabled={busy || selected.length === 0}
+            onClick={() => onSave(selected)}
+          >
+            Salvar
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="patients-btn patients-btn--danger"
+          disabled={busy}
+          onClick={onRevoke}
+        >
+          Revogar
+        </button>
+      </div>
+    </li>
   );
 }

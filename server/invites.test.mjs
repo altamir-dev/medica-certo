@@ -135,21 +135,23 @@ describe('regras de convite', () => {
     if (withToken.mode === 'invite') assert.equal(withToken.token, 'token-presente');
   });
 
-  it('aceita validade padrão de 7 dias e e-mail opcional', () => {
+  it('exige e-mail e pacientes no convite', () => {
     const parsed = parseInviteCreateBody({});
-    assert.equal(parsed.ok, true);
-    if (parsed.ok) {
-      assert.equal(parsed.value.expiresInDays, 7);
-      assert.equal(parsed.value.email, null);
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.ok(parsed.fields.email);
+      assert.ok(parsed.fields.patientIds);
     }
     const bound = parseInviteCreateBody({
       email: '  Ana@Example.com ',
       expiresInDays: '14',
+      patientIds: ['11111111-1111-4111-8111-111111111111'],
     });
     assert.equal(bound.ok, true);
     if (bound.ok) {
       assert.equal(bound.value.email, 'ana@example.com');
       assert.equal(bound.value.expiresInDays, 14);
+      assert.equal(bound.value.patientIds.length, 1);
     }
     const bad = parseInviteCreateBody({ expiresInDays: 0, email: 'nao-e-email' });
     assert.equal(bad.ok, false);
@@ -187,6 +189,9 @@ describe('convites na API', { concurrency: 1 }, () => {
     inviteManageRateLimit.reset();
     await pool.query(`
       TRUNCATE TABLE
+        dose_alarm_receipts,
+        invite_patients,
+        patient_access,
         caregiver_invites,
         notes,
         scheduled_doses,
@@ -242,10 +247,34 @@ describe('convites na API', { concurrency: 1 }, () => {
 
   /**
    * @param {string} cookie
-   * @param {{ email?: string, expiresInDays?: number }} [body]
+   * @param {string} [name]
+   */
+  async function createPatient(cookie, name = 'Paciente teste') {
+    const res = await postJson(
+      '/api/patients',
+      { name, birthDate: '1980-01-02' },
+      cookie,
+    );
+    assert.equal(res.statusCode, 201, res.body);
+    return res.json().patient;
+  }
+
+  /**
+   * @param {string} cookie
+   * @param {{ email?: string, expiresInDays?: number, patientIds?: string[] }} [body]
    */
   async function createInvite(cookie, body = {}) {
-    const res = await postJson('/api/invites', body, cookie);
+    let patientIds = body.patientIds;
+    if (!patientIds?.length) {
+      const patient = await createPatient(cookie);
+      patientIds = [patient.id];
+    }
+    const payload = {
+      email: body.email ?? `convidado.${crypto.randomUUID()}@example.test`,
+      expiresInDays: body.expiresInDays,
+      patientIds,
+    };
+    const res = await postJson('/api/invites', payload, cookie);
     assert.equal(res.statusCode, 201, res.body);
     return res.json();
   }
@@ -325,39 +354,20 @@ describe('convites na API', { concurrency: 1 }, () => {
     assert.equal(list.json().invites[0].status, 'pending');
   });
 
-  it('cadastra pelo convite, consome o link e isola os pacientes', async () => {
+  it('cadastra pelo convite, compartilha pacientes e bloqueia edição', async () => {
     const admin = await bootstrapAdmin();
-    const created = await createInvite(admin.cookie);
+    const owned = await createPatient(admin.cookie, 'Paciente da Ana');
     const invitee = account('ana');
+    const created = await createInvite(admin.cookie, {
+      email: invitee.email,
+      patientIds: [owned.id],
+    });
     const res = await postRegister({ ...invitee, inviteToken: created.token });
     assert.equal(res.statusCode, 201, res.body);
     assert.equal(res.json().caregiver.isAdmin, false);
-    assert.equal(res.json().caregiver.email, invitee.email);
     const raw = res.headers['set-cookie'];
     const line = Array.isArray(raw) ? raw[0] : String(raw);
     const cookie = line.split(';')[0];
-
-    const row = await pool.query(
-      'SELECT used_at, used_by FROM caregiver_invites WHERE id = $1',
-      [created.invite.id],
-    );
-    assert.ok(row.rows[0].used_at);
-    assert.equal(row.rows[0].used_by, res.json().caregiver.id);
-
-    const lookup = await app.inject({
-      method: 'GET',
-      url: `/api/auth/invites/${created.token}`,
-    });
-    assert.equal(lookup.statusCode, 404);
-    assert.equal(lookup.json().error.code, 'INVITE_INVALID');
-    assert.equal(lookup.json().error.message, INVITE_INVALID_MESSAGE);
-
-    const patient = await postJson(
-      '/api/patients',
-      { name: 'Paciente da Ana', birthDate: '1980-01-02' },
-      cookie,
-    );
-    assert.equal(patient.statusCode, 201, patient.body);
 
     const adminList = await app.inject({
       method: 'GET',
@@ -369,22 +379,46 @@ describe('convites na API', { concurrency: 1 }, () => {
       url: '/api/patients',
       headers: { cookie },
     });
-    assert.equal(adminList.json().patients.length, 0);
+    assert.equal(adminList.json().patients.length, 1);
     assert.equal(inviteeList.json().patients.length, 1);
     assert.equal(inviteeList.json().patients[0].name, 'Paciente da Ana');
+    assert.equal(inviteeList.json().patients[0].access, 'grantee');
+
+    const denied = await postJson(
+      '/api/patients',
+      {
+        name: 'Outro',
+        birthDate: '1980-01-02',
+      },
+      cookie,
+    );
+    assert.equal(denied.statusCode, 201, denied.body);
+
+    const putDenied = await app.inject({
+      method: 'PUT',
+      url: `/api/patients/${owned.id}`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        name: 'Hackeado',
+        birthDate: '1980-01-02',
+      }),
+    });
+    assert.equal(putDenied.statusCode, 404);
   });
 
   it('recusa reutilizar o mesmo convite', async () => {
     const admin = await bootstrapAdmin();
-    const created = await createInvite(admin.cookie);
+    const firstAccount = account('primeiro');
+    const created = await createInvite(admin.cookie, { email: firstAccount.email });
     const first = await postRegister({
-      ...account('primeiro'),
+      ...firstAccount,
       inviteToken: created.token,
     });
     assert.equal(first.statusCode, 201, first.body);
 
     const second = await postRegister({
       ...account('segundo'),
+      email: firstAccount.email,
       inviteToken: created.token,
     });
     assert.equal(second.statusCode, 400, second.body);
@@ -486,7 +520,7 @@ describe('convites na API', { concurrency: 1 }, () => {
 
   it('não revela se o e-mail já existe e não consome o convite', async () => {
     const admin = await bootstrapAdmin();
-    const created = await createInvite(admin.cookie);
+    const created = await createInvite(admin.cookie, { email: admin.email });
     const res = await postRegister({
       email: admin.email,
       password: 'outra-senha-forte',
@@ -529,40 +563,42 @@ describe('convites na API', { concurrency: 1 }, () => {
     assert.equal(right.json().caregiver.email, 'ana@example.test');
   });
 
-  it('impede cuidador comum de convidar', async () => {
+  it('convidado sem paciente próprio não gera convite incompleto', async () => {
     const admin = await bootstrapAdmin();
-    const created = await createInvite(admin.cookie);
     const invitee = account('comum');
+    const created = await createInvite(admin.cookie, { email: invitee.email });
     const registered = await postRegister({
       ...invitee,
       inviteToken: created.token,
     });
+    assert.equal(registered.statusCode, 201, registered.body);
     const raw = registered.headers['set-cookie'];
     const cookie = (Array.isArray(raw) ? raw[0] : String(raw)).split(';')[0];
 
-    const create = await postJson('/api/invites', {}, cookie);
-    const list = await app.inject({
-      method: 'GET',
-      url: '/api/invites',
-      headers: { cookie },
-    });
-    const revoke = await postJson(
-      `/api/invites/${created.invite.id}/revoke`,
-      {},
+    const create = await postJson(
+      '/api/invites',
+      { email: 'outro@example.test', patientIds: [] },
       cookie,
     );
-    assert.equal(create.statusCode, 403, create.body);
-    assert.equal(list.statusCode, 403, list.body);
-    assert.equal(revoke.statusCode, 403, revoke.body);
-    assert.equal(create.json().error.code, 'FORBIDDEN');
+    assert.equal(create.statusCode, 400, create.body);
+    assert.equal(create.json().error.code, 'VALIDATION');
   });
 
   it('serializa dois cadastros com o mesmo convite', async () => {
     const admin = await bootstrapAdmin();
-    const created = await createInvite(admin.cookie);
+    const sharedEmail = `duplo.${crypto.randomUUID()}@example.test`;
+    const created = await createInvite(admin.cookie, { email: sharedEmail });
     const [a, b] = await Promise.all([
-      postRegister({ ...account('a'), inviteToken: created.token }),
-      postRegister({ ...account('b'), inviteToken: created.token }),
+      postRegister({
+        ...account('a'),
+        email: sharedEmail,
+        inviteToken: created.token,
+      }),
+      postRegister({
+        ...account('b'),
+        email: sharedEmail,
+        inviteToken: created.token,
+      }),
     ]);
     const statuses = [a.statusCode, b.statusCode].sort();
     assert.deepEqual(statuses, [201, 400]);
@@ -615,11 +651,23 @@ describe('convites na API', { concurrency: 1 }, () => {
     assert.equal(blockedLookup.statusCode, 429);
 
     inviteManageRateLimit.reset();
+    const patient = await createPatient(admin.cookie);
     for (let i = 0; i < 10; i += 1) {
-      const res = await postJson('/api/invites', {}, admin.cookie);
+      const res = await postJson(
+        '/api/invites',
+        {
+          email: `rate.${i}@example.test`,
+          patientIds: [patient.id],
+        },
+        admin.cookie,
+      );
       assert.equal(res.statusCode, 201, res.body);
     }
-    const blockedCreate = await postJson('/api/invites', {}, admin.cookie);
+    const blockedCreate = await postJson(
+      '/api/invites',
+      { email: 'blocked@example.test', patientIds: [patient.id] },
+      admin.cookie,
+    );
     assert.equal(blockedCreate.statusCode, 429);
     assert.equal(blockedCreate.json().error.code, 'RATE_LIMITED');
   });

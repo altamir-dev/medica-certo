@@ -12,7 +12,11 @@ export type Invite = {
   revokedAt: string | null;
 };
 
-export function createInvite(input: { email?: string; expiresInDays?: number }) {
+export function createInvite(input: {
+  email: string;
+  patientIds: string[];
+  expiresInDays?: number;
+}) {
   return apiFetch<{ invite: Invite; token: string }>('/api/invites', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -32,6 +36,13 @@ export function revokeInvite(id: string) {
 export function lookupInvite(token: string) {
   return apiFetch<{ invite: { email: string | null; expiresAt: string } }>(
     `/api/auth/invites/${encodeURIComponent(token)}`,
+  );
+}
+
+export function acceptInvite(token: string) {
+  return apiFetch<{ ok: true }>(
+    `/api/auth/invites/${encodeURIComponent(token)}/accept`,
+    { method: 'POST' },
   );
 }
 

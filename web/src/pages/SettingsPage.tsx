@@ -180,9 +180,7 @@ export function SettingsPage() {
             Configurações
           </h2>
           <p className="patients-toolbar__hint">
-            {auth.caregiver?.isAdmin
-              ? 'Convites, alarmes e notificações neste aparelho'
-              : 'Alarmes globais e notificações neste aparelho'}
+            Compartilhar pacientes, alarmes e notificações neste aparelho
           </p>
         </div>
       </div>
@@ -198,7 +196,7 @@ export function SettingsPage() {
         </p>
       ) : null}
 
-      {auth.caregiver?.isAdmin ? <InvitesCard /> : null}
+      <InvitesCard />
 
       <div className="portal-card settings-card">
         <h3 className="settings-card__title">Alarmes</h3>

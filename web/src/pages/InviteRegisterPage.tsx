@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Moon, Sun } from '@phosphor-icons/react';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
-import { lookupInvite } from '../api/invites';
+import { lookupInvite, acceptInvite } from '../api/invites';
 import { useTheme } from '../theme/useTheme';
 import './LoginPage.css';
 
@@ -33,6 +33,7 @@ export function InviteRegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [entering, setEntering] = useState(false);
 
   useEffect(() => {
@@ -59,6 +60,23 @@ export function InviteRegisterPage() {
       active = false;
     };
   }, [token]);
+
+  async function onAcceptInvite() {
+    if (!token || lookup.state !== 'ready') return;
+    setError(null);
+    setAccepting(true);
+    try {
+      await acceptInvite(token);
+      setEntering(true);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Não foi possível aceitar o convite.',
+      );
+    } finally {
+      setAccepting(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -88,6 +106,12 @@ export function InviteRegisterPage() {
   }
 
   const boundEmail = lookup.state === 'ready' ? lookup.email : null;
+  const sessionEmail = auth.caregiver?.email?.trim().toLowerCase() ?? '';
+  const canAcceptExisting =
+    auth.status === 'authenticated' &&
+    lookup.state === 'ready' &&
+    boundEmail &&
+    sessionEmail === boundEmail.toLowerCase();
 
   return (
     <div className="login-page">
@@ -121,11 +145,35 @@ export function InviteRegisterPage() {
         ) : (
           <>
             <p className="portal-card__body">
-              Você recebeu um convite para ser cuidador no Medica Certo. A
-              conta é sua: os pacientes não são compartilhados. Válido até{' '}
-              {formatUntil(lookup.expiresAt)}.
+              Você recebeu um convite para ver pacientes e registrar doses no
+              Medica Certo. Válido até {formatUntil(lookup.expiresAt)}.
             </p>
-            {auth.status === 'authenticated' ? (
+            {canAcceptExisting ? (
+              <>
+                <p className="portal-card__body">
+                  Entre como {auth.caregiver?.email} para aceitar o acesso aos
+                  pacientes liberados para você.
+                </p>
+                {error ? (
+                  <p className="login-alert" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  className="login-button"
+                  disabled={accepting}
+                  onClick={() => {
+                    void onAcceptInvite();
+                  }}
+                >
+                  {accepting ? 'Aguarde…' : 'Aceitar convite'}
+                </button>
+                <Link className="login-switch" to="/">
+                  Voltar ao início
+                </Link>
+              </>
+            ) : auth.status === 'authenticated' ? (
               <>
                 <p className="portal-card__body">
                   Você já está conectado como {auth.caregiver?.name}. Saia da

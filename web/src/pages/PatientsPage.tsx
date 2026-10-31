@@ -112,6 +112,7 @@ export function PatientsPage() {
                 <p className="patients-row__meta">
                   Nascimento {formatBirthDate(patient.birthDate)} · Sono{' '}
                   {patient.sleepStart}–{patient.sleepEnd}
+                  {patient.access === 'grantee' ? ' · compartilhado' : ''}
                 </p>
               </div>
               <div className="patients-row__actions">
@@ -121,6 +122,8 @@ export function PatientsPage() {
                 >
                   Abrir
                 </Link>
+                {patient.access !== 'grantee' ? (
+                  <>
                 <Link
                   to={`/pacientes/${patient.id}/editar`}
                   className="patients-btn patients-btn--secondary"
@@ -139,6 +142,8 @@ export function PatientsPage() {
                   <Trash weight="bold" size={18} aria-hidden="true" />
                   {deletingId === patient.id ? 'Excluindo…' : 'Excluir'}
                 </button>
+                  </>
+                ) : null}
               </div>
             </article>
           ))}

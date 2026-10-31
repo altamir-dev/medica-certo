@@ -1,4 +1,9 @@
 import { getPool } from './db.mjs';
+import {
+  listAccessiblePatients,
+  resolveDoseAccess,
+  resolvePatientAccess,
+} from './access.mjs';
 import { asString } from './patients.mjs';
 import { mapDose, maybeExtendTreatment, UUID_RE } from './treatments.mjs';
 import {
@@ -17,12 +22,9 @@ import {
 export async function getPatientSheet(caregiverId, patientId, range = {}) {
   const pool = getPool();
 
-  const patientRes = await pool.query(
-    `SELECT id, name, birth_date, sleep_start, sleep_end
-     FROM patients WHERE id = $1 AND caregiver_id = $2`,
-    [patientId, caregiverId],
-  );
-  if (!patientRes.rows[0]) return { ok: false, code: 'NOT_FOUND' };
+  const access = await resolvePatientAccess(caregiverId, patientId);
+  if (!access) return { ok: false, code: 'NOT_FOUND' };
+  const ownerId = access.ownerCaregiverId;
 
   const treatmentsRes = await pool.query(
     `SELECT t.id, t.starts_at, t.ends_on, t.status, t.dose_quantity, t.route,
@@ -32,13 +34,13 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
      JOIN medications m ON m.id = t.medication_id
      WHERE t.caregiver_id = $1 AND t.patient_id = $2 AND t.status = 'active'
      ORDER BY t.starts_at ASC`,
-    [caregiverId, patientId],
+    [ownerId, patientId],
   );
 
   const treatments = treatmentsRes.rows;
   for (const t of treatments) {
     if (t.ends_on == null) {
-      await maybeExtendTreatment(caregiverId, t.id);
+      await maybeExtendTreatment(ownerId, t.id);
     }
   }
 
@@ -87,7 +89,7 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
          AND d.scheduled_at <= ($4::date + time '23:59:59.999') AT TIME ZONE 'America/Sao_Paulo'
        ORDER BY d.scheduled_at ASC`,
       [
-        caregiverId,
+        ownerId,
         treatmentIds,
         `${fromDay}T00:00:00-03:00`,
         toDay,
@@ -186,10 +188,9 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
     const notesRes = await pool.query(
       `SELECT DISTINCT ON (scheduled_dose_id) scheduled_dose_id, body
        FROM notes
-       WHERE caregiver_id = $1
-         AND scheduled_dose_id = ANY($2::uuid[])
+       WHERE scheduled_dose_id = ANY($1::uuid[])
        ORDER BY scheduled_dose_id, created_at DESC`,
-      [caregiverId, doseIds],
+      [doseIds],
     );
     for (const n of notesRes.rows) {
       noteByDose.set(n.scheduled_dose_id, n.body);
@@ -275,16 +276,12 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
  * @param {string} doseId
  * @param {{ administeredAt?: string, note?: string, confirmEarly?: boolean }} input
  */
-export async function administerDose(caregiverId, doseId, input) {
+export async function administerDose(sessionCaregiverId, doseId, input) {
   const pool = getPool();
-  const existing = await pool.query(
-    `SELECT d.id, d.treatment_id, d.scheduled_at, d.status, d.administered_at
-     FROM scheduled_doses d
-     WHERE d.id = $1 AND d.caregiver_id = $2`,
-    [doseId, caregiverId],
-  );
-  const row = existing.rows[0];
-  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  const access = await resolveDoseAccess(sessionCaregiverId, doseId);
+  if (!access) return { ok: false, code: 'NOT_FOUND' };
+  const row = access.row;
+  const ownerId = access.ownerCaregiverId;
 
   if (row.status === 'administered') {
     return { ok: false, code: 'DUPLICATE_ADMINISTRATION' };
@@ -330,7 +327,7 @@ export async function administerDose(caregiverId, doseId, input) {
        WHERE id = $2 AND caregiver_id = $3 AND status = 'pending'
        RETURNING id, treatment_id, caregiver_id, scheduled_at, status,
                  administered_at, alarm_at`,
-      [administeredAt, doseId, caregiverId],
+      [administeredAt, doseId, ownerId],
     );
     if ((updated.rowCount ?? 0) === 0) {
       await client.query('ROLLBACK');
@@ -341,7 +338,7 @@ export async function administerDose(caregiverId, doseId, input) {
       await client.query(
         `INSERT INTO notes (caregiver_id, treatment_id, scheduled_dose_id, body)
          VALUES ($1, $2, $3, $4)`,
-        [caregiverId, row.treatment_id, doseId, note],
+        [sessionCaregiverId, row.treatment_id, doseId, note],
       );
     }
 
@@ -361,16 +358,12 @@ export async function administerDose(caregiverId, doseId, input) {
  * @param {string} doseId
  * @param {{ administeredAt: string, note?: string }} input
  */
-export async function updateAdministration(caregiverId, doseId, input) {
+export async function updateAdministration(sessionCaregiverId, doseId, input) {
   const pool = getPool();
-  const existing = await pool.query(
-    `SELECT d.id, d.treatment_id, d.status
-     FROM scheduled_doses d
-     WHERE d.id = $1 AND d.caregiver_id = $2`,
-    [doseId, caregiverId],
-  );
-  const row = existing.rows[0];
-  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  const access = await resolveDoseAccess(sessionCaregiverId, doseId);
+  if (!access) return { ok: false, code: 'NOT_FOUND' };
+  const row = access.row;
+  const ownerId = access.ownerCaregiverId;
   if (row.status !== 'administered') {
     return { ok: false, code: 'CONFLICT' };
   }
@@ -394,13 +387,13 @@ export async function updateAdministration(caregiverId, doseId, input) {
        WHERE id = $2 AND caregiver_id = $3
        RETURNING id, treatment_id, caregiver_id, scheduled_at, status,
                  administered_at, alarm_at`,
-      [administeredAt, doseId, caregiverId],
+      [administeredAt, doseId, ownerId],
     );
     if (note) {
       await client.query(
         `INSERT INTO notes (caregiver_id, treatment_id, scheduled_dose_id, body)
          VALUES ($1, $2, $3, $4)`,
-        [caregiverId, row.treatment_id, doseId, note],
+        [sessionCaregiverId, row.treatment_id, doseId, note],
       );
     }
     await client.query('COMMIT');
@@ -448,23 +441,18 @@ export async function getCaregiverCalendar(caregiverId, range = {}) {
     toDay = tmp;
   }
 
-  const patientsRes = await pool.query(
-    `SELECT id, name
-     FROM patients
-     WHERE caregiver_id = $1
-     ORDER BY lower(name) ASC`,
-    [caregiverId],
-  );
-  const patients = patientsRes.rows;
+  const patients = await listAccessiblePatients(caregiverId);
 
-  // Estender tratamentos contínuos ativos
-  const continuous = await pool.query(
-    `SELECT id FROM treatments
-     WHERE caregiver_id = $1 AND status = 'active' AND ends_on IS NULL`,
-    [caregiverId],
-  );
-  for (const t of continuous.rows) {
-    await maybeExtendTreatment(caregiverId, t.id);
+  const ownerIds = [...new Set(patients.map((p) => p.ownerCaregiverId))];
+  for (const ownerId of ownerIds) {
+    const continuous = await pool.query(
+      `SELECT id FROM treatments
+       WHERE caregiver_id = $1 AND status = 'active' AND ends_on IS NULL`,
+      [ownerId],
+    );
+    for (const t of continuous.rows) {
+      await maybeExtendTreatment(ownerId, t.id);
+    }
   }
 
   /** @type {Map<string, string>} */
@@ -497,14 +485,13 @@ export async function getCaregiverCalendar(caregiverId, range = {}) {
        JOIN treatments t ON t.id = d.treatment_id
        JOIN patients p ON p.id = t.patient_id
        JOIN medications m ON m.id = t.medication_id
-       WHERE d.caregiver_id = $1
-         AND t.status = 'active'
+       WHERE t.status = 'active'
          AND d.status <> 'cancelled'
-         AND t.patient_id = ANY($2::uuid[])
-         AND d.scheduled_at >= $3::timestamptz
-         AND d.scheduled_at <= ($4::date + time '23:59:59.999') AT TIME ZONE 'America/Sao_Paulo'
+         AND t.patient_id = ANY($1::uuid[])
+         AND d.scheduled_at >= $2::timestamptz
+         AND d.scheduled_at <= ($3::date + time '23:59:59.999') AT TIME ZONE 'America/Sao_Paulo'
        ORDER BY d.scheduled_at ASC`,
-      [caregiverId, patientIds, `${fromDay}T00:00:00-03:00`, toDay],
+      [patientIds, `${fromDay}T00:00:00-03:00`, toDay],
     );
     doseRows = dosesRes.rows;
   }
@@ -641,6 +628,7 @@ export async function getCaregiverCalendar(caregiverId, range = {}) {
     patientId: p.id,
     name: p.name,
     color: colorByPatient.get(p.id) ?? MED_COLORS[0],
+    access: p.access,
   }));
 
   return {
@@ -663,19 +651,39 @@ export async function getCaregiverCalendar(caregiverId, range = {}) {
  * @param {string} caregiverId
  * @param {{ limit?: number }} [opts]
  */
-export async function getDashboard(caregiverId, opts = {}) {
+export async function getDashboard(sessionCaregiverId, opts = {}) {
   const pool = getPool();
   const limit = Math.min(100, Math.max(1, Number(opts.limit) || 50));
   const now = new Date();
 
-  const continuous = await pool.query(
-    `SELECT id FROM treatments
-     WHERE caregiver_id = $1 AND status = 'active' AND ends_on IS NULL`,
-    [caregiverId],
-  );
-  for (const t of continuous.rows) {
-    await maybeExtendTreatment(caregiverId, t.id);
+  const patients = await listAccessiblePatients(sessionCaregiverId);
+  const patientIds = patients.map((p) => p.id);
+  if (!patientIds.length) {
+    return {
+      now: formatZonedIso(toZoned(now)),
+      upcoming: [],
+      overdue: [],
+      dueAlarms: [],
+    };
   }
+
+  const ownerIds = [...new Set(patients.map((p) => p.ownerCaregiverId))];
+  for (const ownerId of ownerIds) {
+    const continuous = await pool.query(
+      `SELECT id FROM treatments
+       WHERE caregiver_id = $1 AND status = 'active' AND ends_on IS NULL`,
+      [ownerId],
+    );
+    for (const t of continuous.rows) {
+      await maybeExtendTreatment(ownerId, t.id);
+    }
+  }
+
+  const sessionRow = await pool.query(
+    `SELECT alarms_enabled FROM caregivers WHERE id = $1`,
+    [sessionCaregiverId],
+  );
+  const sessionAlarmsEnabled = Boolean(sessionRow.rows[0]?.alarms_enabled);
 
   const { rows } = await pool.query(
     `SELECT
@@ -690,19 +698,17 @@ export async function getDashboard(caregiverId, opts = {}) {
        t.alarms_enabled AS treatment_alarms_enabled,
        p.id AS patient_id,
        p.name AS patient_name,
-       m.name AS medication_name,
-       c.alarms_enabled AS caregiver_alarms_enabled
+       m.name AS medication_name
      FROM scheduled_doses d
      INNER JOIN treatments t ON t.id = d.treatment_id
      INNER JOIN patients p ON p.id = t.patient_id
      INNER JOIN medications m ON m.id = t.medication_id
-     INNER JOIN caregivers c ON c.id = d.caregiver_id
-     WHERE d.caregiver_id = $1
-       AND d.status = 'pending'
+     WHERE d.status = 'pending'
        AND t.status = 'active'
+       AND t.patient_id = ANY($1::uuid[])
      ORDER BY d.scheduled_at ASC
      LIMIT $2`,
-    [caregiverId, limit * 2],
+    [patientIds, limit * 2],
   );
 
   /** @param {typeof rows[0]} r */
@@ -722,7 +728,7 @@ export async function getDashboard(caregiverId, opts = {}) {
       status: r.status,
       snoozeCount: r.snooze_count,
       treatmentAlarmsEnabled: r.treatment_alarms_enabled,
-      caregiverAlarmsEnabled: r.caregiver_alarms_enabled,
+      caregiverAlarmsEnabled: sessionAlarmsEnabled,
     };
   }
 
@@ -740,7 +746,7 @@ export async function getDashboard(caregiverId, opts = {}) {
       upcoming.push(item);
     }
     const alarmsOn =
-      r.caregiver_alarms_enabled && r.treatment_alarms_enabled && alarmAt;
+      sessionAlarmsEnabled && r.treatment_alarms_enabled && alarmAt;
     // From alarm_at until resolved; drop backlog older than 6h past scheduled.
     const maxLateMs = 6 * 60 * 60 * 1000;
     if (
@@ -765,16 +771,12 @@ export async function getDashboard(caregiverId, opts = {}) {
  * @param {string} doseId
  * @param {{ note?: string }} [input]
  */
-export async function skipDose(caregiverId, doseId, input = {}) {
+export async function skipDose(sessionCaregiverId, doseId, input = {}) {
   const pool = getPool();
-  const existing = await pool.query(
-    `SELECT d.id, d.treatment_id, d.status
-     FROM scheduled_doses d
-     WHERE d.id = $1 AND d.caregiver_id = $2`,
-    [doseId, caregiverId],
-  );
-  const row = existing.rows[0];
-  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  const access = await resolveDoseAccess(sessionCaregiverId, doseId);
+  if (!access) return { ok: false, code: 'NOT_FOUND' };
+  const row = access.row;
+  const ownerId = access.ownerCaregiverId;
   if (row.status === 'skipped') {
     return { ok: false, code: 'DUPLICATE' };
   }
@@ -800,7 +802,7 @@ export async function skipDose(caregiverId, doseId, input = {}) {
        WHERE id = $1 AND caregiver_id = $2 AND status = 'pending'
        RETURNING id, treatment_id, caregiver_id, scheduled_at, status,
                  administered_at, alarm_at`,
-      [doseId, caregiverId],
+      [doseId, ownerId],
     );
     if ((updated.rowCount ?? 0) === 0) {
       await client.query('ROLLBACK');
@@ -810,7 +812,7 @@ export async function skipDose(caregiverId, doseId, input = {}) {
       await client.query(
         `INSERT INTO notes (caregiver_id, treatment_id, scheduled_dose_id, body)
          VALUES ($1, $2, $3, $4)`,
-        [caregiverId, row.treatment_id, doseId, note],
+        [sessionCaregiverId, row.treatment_id, doseId, note],
       );
     }
     await client.query('COMMIT');
@@ -828,16 +830,12 @@ export async function skipDose(caregiverId, doseId, input = {}) {
  * @param {string} caregiverId
  * @param {string} doseId
  */
-export async function snoozeDose(caregiverId, doseId) {
+export async function snoozeDose(sessionCaregiverId, doseId) {
   const pool = getPool();
-  const existing = await pool.query(
-    `SELECT id, status, snooze_count, alarm_at
-     FROM scheduled_doses
-     WHERE id = $1 AND caregiver_id = $2`,
-    [doseId, caregiverId],
-  );
-  const row = existing.rows[0];
-  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  const access = await resolveDoseAccess(sessionCaregiverId, doseId);
+  if (!access) return { ok: false, code: 'NOT_FOUND' };
+  const row = access.row;
+  const ownerId = access.ownerCaregiverId;
   if (row.status !== 'pending') return { ok: false, code: 'CONFLICT' };
   if (row.snooze_count >= 1) return { ok: false, code: 'SNOOZE_EXHAUSTED' };
 
@@ -853,11 +851,14 @@ export async function snoozeDose(caregiverId, doseId) {
      WHERE id = $2 AND caregiver_id = $3 AND status = 'pending' AND snooze_count < 1
      RETURNING id, treatment_id, caregiver_id, scheduled_at, status,
                administered_at, alarm_at, snooze_count`,
-    [nextAlarm, doseId, caregiverId],
+    [nextAlarm, doseId, ownerId],
   );
   if ((updated.rowCount ?? 0) === 0) {
     return { ok: false, code: 'CONFLICT' };
   }
+  await pool.query(`DELETE FROM dose_alarm_receipts WHERE scheduled_dose_id = $1`, [
+    doseId,
+  ]);
   const d = updated.rows[0];
   return {
     ok: true,

@@ -72,9 +72,21 @@ _Evitar_: quiet hours, horário silencioso (para alarmes de medicamento)
 Modo do esquema em que uma lista de horas do dia se repete em cada dia do período do tratamento.
 _Evitar_: horário fixo (como sinônimo vago do conceito inteiro)
 
+**Titular do paciente**:
+Cuidador que cadastrou o paciente (`patients.caregiver_id`). Configura tratamentos, medicamentos e libera acesso a outras pessoas.
+_Evitar_: dono, admin do paciente
+
+**Convidado**:
+Cuidador com linha em `patient_access` para pacientes de um titular. Vê a grade, registra doses e anotações, recebe alarmes; não edita cadastro, tratamento ou catálogo desses pacientes.
+_Evitar_: usuário secundário, viewer
+
+**Convite com pacientes**:
+Link de uso único com e-mail fixo e lista de pacientes do titular. Quem aceita ganha `patient_access`; o titular pode alterar ou revogar depois.
+_Evitar_: magic link genérico
+
 ## Relacionamentos
 
-- Um **Cuidador** gerencia um ou mais **Pacientes**.
+- Um **Cuidador** gerencia um ou mais **Pacientes** (como titular) e pode ser **Convidado** em pacientes de outro titular.
 - Um **Medicamento** pode participar de vários **Tratamentos**.
 - Um **Tratamento** pertence a um **Paciente**, referencia um **Medicamento**, define um **Esquema de horários** e possui uma **Grade de doses**.
 - Cada **Dose prevista** pode ter zero ou uma **Dose administrada**.

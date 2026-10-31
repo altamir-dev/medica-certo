@@ -7,6 +7,7 @@ import {
   getTreatment,
   type Treatment,
 } from '../api/treatments';
+import { getPatient, type PatientAccess } from '../api/patients';
 import {
   EndTreatmentDialog,
   RemoveTreatmentDialog,
@@ -41,6 +42,9 @@ export function TreatmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [treatment, setTreatment] = useState<Treatment | null>(null);
+  const [patientAccess, setPatientAccess] = useState<PatientAccess | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [stopMode, setStopMode] = useState<'end' | 'remove' | null>(null);
@@ -49,7 +53,10 @@ export function TreatmentDetailPage() {
     if (!id) return;
     setError(null);
     try {
-      setTreatment(await getTreatment(id));
+      const data = await getTreatment(id);
+      setTreatment(data);
+      const patient = await getPatient(data.patientId);
+      setPatientAccess(patient.access);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -88,6 +95,8 @@ export function TreatmentDetailPage() {
       `/pacientes/${treatment.patientId}/tratamentos/novo?medicationId=${encodeURIComponent(treatment.medicationId)}`,
     );
   }
+
+  const canManage = patientAccess !== 'grantee';
 
   return (
     <div className="patients-page">
@@ -174,6 +183,7 @@ export function TreatmentDetailPage() {
             </p>
           ) : null}
 
+          {canManage ? (
           <div className="treatments-actions">
             {treatment.status === 'active' ? (
               <button
@@ -204,6 +214,7 @@ export function TreatmentDetailPage() {
               Remover
             </button>
           </div>
+          ) : null}
         </section>
       ) : null}
 
