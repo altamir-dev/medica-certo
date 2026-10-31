@@ -812,7 +812,6 @@ Demais decisões de produto do PRD estão fechadas em **Key Decisions**.
 - `docs/prd.md` — R1–R8
 - `CONTEXT.md` — linguagem ubíqua
 - `docs/roadmap.md` — fases 0–5
-
 - zap-resumos: `docs/app/15-notificacoes.md`, `public/sw.js`, `server/push.mjs`
 
 ---
