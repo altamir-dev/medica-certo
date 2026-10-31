@@ -759,7 +759,7 @@ Aceite:
 - **Provedor:** OpenRouter (`AI_BASE_URL=https://openrouter.ai/api/v1`). Sem API direta da DeepSeek e sem 9router neste fluxo.
 - **Modelo e chave:** só em ambiente (`AI_MODEL`, `AI_API_KEY`), sem default no código. O valor previsto do modelo é `deepseek/deepseek-v4.1-flash-1017`.
 
-- **Cota:** 5 leituras por cuidador em cada mês-calendário de `America/Sao_Paulo` (`AI_MONTHLY_LIMIT`, padrão 5). Na cota esgotada a tela avisa e o cadastro manual continua.
+- **Cota:** 5 leituras por cuidador em cada mês-calendário de `America/Sao_Paulo` (`AI_MONTHLY_LIMIT`, padrão 5). O teto efetivo sai de `readingAllowance` (base do env + créditos extras, hoje 0). Na cota esgotada a tela avisa e o cadastro manual continua.
 - **Retenção:** a imagem da receita e a foto ficam 90 dias (`AI_IMAGE_RETAIN_DAYS`, padrão 90) e o scheduler apaga o arquivo. A cópia que virou foto do catálogo sai junto, salvo se o cuidador tiver trocado a foto depois.
 
 ### Implementação F1–F7
