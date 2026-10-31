@@ -1,0 +1,75 @@
+.settings-page {
+  gap: var(--space-3);
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-card__title {
+  margin: 0;
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.settings-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.settings-hint {
+  margin: 0;
+  font-size: var(--font-xxxs);
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings-ios {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--font-xxs);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.settings-sub {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-xxs);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.settings-subs {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: var(--font-xxs);
+  color: var(--muted);
+}
+
+.settings-sub-error {
+  color: var(--danger-dark, #b91c1c);
+}
+
+.settings-ok {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--success-soft, #dcfce7);
+  color: var(--success-dark, #166534);
+  font-size: var(--font-xxs);
+  font-weight: 600;
+}

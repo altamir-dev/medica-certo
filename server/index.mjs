@@ -12,6 +12,8 @@ import { patientsRoutes } from './routes/patients.mjs';
 import { medicationsRoutes } from './routes/medications.mjs';
 import { treatmentsRoutes } from './routes/treatments.mjs';
 import { dosesRoutes } from './routes/doses.mjs';
+import { pushRoutes } from './routes/push.mjs';
+import { startAlarmScheduler } from './scheduler.mjs';
 
 const app = Fastify({
   logger: {
@@ -35,6 +37,9 @@ await app.register(patientsRoutes);
 await app.register(medicationsRoutes);
 await app.register(treatmentsRoutes);
 await app.register(dosesRoutes);
+await app.register(pushRoutes);
+
+startAlarmScheduler(app);
 
 if (config.isProd && existsSync(config.webDistDir)) {
   await app.register(fastifyStatic, {

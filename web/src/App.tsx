@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth } from './auth/RequireAuth';
 import { PortalShell } from './shell/PortalShell';
-import { PlaceholderPage } from './pages/PlaceholderPage';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { PatientsPage } from './pages/PatientsPage';
@@ -13,6 +12,7 @@ import { MedicationFormPage } from './pages/MedicationFormPage';
 import { TreatmentFormPage } from './pages/TreatmentFormPage';
 import { TreatmentDetailPage } from './pages/TreatmentDetailPage';
 import { TreatmentGradePage } from './pages/TreatmentGradePage';
+import { SettingsPage } from './pages/SettingsPage';
 
 export function App() {
   return (
@@ -46,15 +46,7 @@ export function App() {
                 element={<TreatmentGradePage />}
               />
               <Route path="tratamentos/:id" element={<TreatmentDetailPage />} />
-              <Route
-                path="configuracoes"
-                element={
-                  <PlaceholderPage
-                    title="Configurações"
-                    description="Preferências de alarmes e push entram nas PRs 8–9."
-                  />
-                }
-              />
+              <Route path="configuracoes" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Route>

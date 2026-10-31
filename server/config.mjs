@@ -54,4 +54,9 @@ export const config = {
   bootstrapEmail: process.env.BOOTSTRAP_EMAIL ?? '',
   bootstrapPassword: process.env.BOOTSTRAP_PASSWORD ?? '',
   bootstrapName: process.env.BOOTSTRAP_NAME ?? 'Cuidador',
+  vapidPublic: process.env.VAPID_PUBLIC_KEY?.trim() || '',
+  vapidPrivate: process.env.VAPID_PRIVATE_KEY?.trim() || '',
+  vapidSubject:
+    process.env.VAPID_SUBJECT?.trim() || 'mailto:contato@altamir.dev',
+  alarmSchedulerMs: Number(process.env.ALARM_SCHEDULER_MS ?? 45_000),
 };

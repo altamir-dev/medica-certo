@@ -83,3 +83,22 @@ export async function updateAdministration(
   );
   return data.dose;
 }
+
+export async function skipDose(
+  doseId: string,
+  input: { note?: string } = {},
+): Promise<ScheduledDose> {
+  const data = await apiFetch<{ dose: ScheduledDose }>(
+    `/api/doses/${doseId}/skip`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+  return data.dose;
+}
+
+export async function snoozeDose(doseId: string): Promise<ScheduledDose> {
+  const data = await apiFetch<{ dose: ScheduledDose }>(
+    `/api/doses/${doseId}/snooze`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  return data.dose;
+}

@@ -3,7 +3,10 @@ import {
   UUID_RE,
   administerDose,
   getCaregiverCalendar,
+  getDashboard,
   getPatientSheet,
+  skipDose,
+  snoozeDose,
   updateAdministration,
 } from '../doses.mjs';
 import { getPatient } from '../patients.mjs';
@@ -12,6 +15,14 @@ import { getPatient } from '../patients.mjs';
  * @param {import('fastify').FastifyInstance} app
  */
 export async function dosesRoutes(app) {
+  app.get('/api/dashboard', async (request, reply) => {
+    if (!request.caregiver) {
+      return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');
+    }
+    const dashboard = await getDashboard(request.caregiver.id);
+    return { dashboard };
+  });
+
   app.get('/api/dashboard/calendar', async (request, reply) => {
     if (!request.caregiver) {
       return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');
@@ -99,6 +110,62 @@ export async function dosesRoutes(app) {
       return sendError(reply, 409, 'CONFLICT', 'Não foi possível registrar.');
     }
 
+    return { dose: result.dose };
+  });
+
+  app.post('/api/doses/:id/skip', async (request, reply) => {
+    if (!request.caregiver) {
+      return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');
+    }
+    const { id } = /** @type {{ id: string }} */ (request.params);
+    if (!UUID_RE.test(id)) {
+      return sendError(reply, 404, 'NOT_FOUND', 'Dose não encontrada.');
+    }
+    const body = /** @type {Record<string, unknown>} */ (request.body ?? {});
+    const result = await skipDose(request.caregiver.id, id, {
+      note: typeof body.note === 'string' ? body.note : undefined,
+    });
+    if (!result.ok) {
+      if (result.code === 'NOT_FOUND') {
+        return sendError(reply, 404, 'NOT_FOUND', 'Dose não encontrada.');
+      }
+      if (result.code === 'VALIDATION') {
+        return sendError(
+          reply,
+          400,
+          'VALIDATION',
+          'Dados inválidos.',
+          result.fields,
+        );
+      }
+      return sendError(reply, 409, 'CONFLICT', 'Não foi possível pular a dose.');
+    }
+    return { dose: result.dose };
+  });
+
+  app.post('/api/doses/:id/snooze', async (request, reply) => {
+    if (!request.caregiver) {
+      return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');
+    }
+    const { id } = /** @type {{ id: string }} */ (request.params);
+    if (!UUID_RE.test(id)) {
+      return sendError(reply, 404, 'NOT_FOUND', 'Dose não encontrada.');
+    }
+    const result = await snoozeDose(request.caregiver.id, id);
+    if (!result.ok) {
+      if (result.code === 'NOT_FOUND') {
+        return sendError(reply, 404, 'NOT_FOUND', 'Dose não encontrada.');
+      }
+      if (result.code === 'SNOOZE_EXHAUSTED') {
+        return sendError(
+          reply,
+          409,
+          'SNOOZE_EXHAUSTED',
+          'Soneca já usada nesta dose.',
+        );
+      }
+      return sendError(reply, 409, 'CONFLICT', 'Não foi possível adiar o alarme.');
+    }
     return { dose: result.dose };
   });
 

@@ -60,3 +60,31 @@ export async function getDashboardCalendar(opts?: {
   );
   return data.calendar;
 }
+
+export type DashboardDose = {
+  doseId: string;
+  scheduledAt: string;
+  alarmAt: string | null;
+  patientId: string;
+  patientName: string;
+  medicationName: string;
+  doseQuantity: string;
+  route: string;
+  treatmentId: string;
+  status: string;
+  snoozeCount: number;
+  treatmentAlarmsEnabled: boolean;
+  caregiverAlarmsEnabled: boolean;
+};
+
+export type DashboardSnapshot = {
+  now: string;
+  upcoming: DashboardDose[];
+  overdue: DashboardDose[];
+  dueAlarms: DashboardDose[];
+};
+
+export async function getDashboard(): Promise<DashboardSnapshot> {
+  const data = await apiFetch<{ dashboard: DashboardSnapshot }>('/api/dashboard');
+  return data.dashboard;
+}

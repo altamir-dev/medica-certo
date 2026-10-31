@@ -658,4 +658,214 @@ export async function getCaregiverCalendar(caregiverId, range = {}) {
   };
 }
 
+/**
+ * Upcoming + overdue pending doses for alarm monitor / dashboard cards.
+ * @param {string} caregiverId
+ * @param {{ limit?: number }} [opts]
+ */
+export async function getDashboard(caregiverId, opts = {}) {
+  const pool = getPool();
+  const limit = Math.min(100, Math.max(1, Number(opts.limit) || 50));
+  const now = new Date();
+
+  const continuous = await pool.query(
+    `SELECT id FROM treatments
+     WHERE caregiver_id = $1 AND status = 'active' AND ends_on IS NULL`,
+    [caregiverId],
+  );
+  for (const t of continuous.rows) {
+    await maybeExtendTreatment(caregiverId, t.id);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT
+       d.id,
+       d.scheduled_at,
+       d.alarm_at,
+       d.status,
+       d.snooze_count,
+       t.id AS treatment_id,
+       t.dose_quantity,
+       t.route,
+       t.alarms_enabled AS treatment_alarms_enabled,
+       p.id AS patient_id,
+       p.name AS patient_name,
+       m.name AS medication_name,
+       c.alarms_enabled AS caregiver_alarms_enabled
+     FROM scheduled_doses d
+     INNER JOIN treatments t ON t.id = d.treatment_id
+     INNER JOIN patients p ON p.id = t.patient_id
+     INNER JOIN medications m ON m.id = t.medication_id
+     INNER JOIN caregivers c ON c.id = d.caregiver_id
+     WHERE d.caregiver_id = $1
+       AND d.status = 'pending'
+       AND t.status = 'active'
+     ORDER BY d.scheduled_at ASC
+     LIMIT $2`,
+    [caregiverId, limit * 2],
+  );
+
+  /** @param {typeof rows[0]} r */
+  function mapRow(r) {
+    const scheduledAt = new Date(r.scheduled_at);
+    const alarmAt = r.alarm_at ? new Date(r.alarm_at) : null;
+    return {
+      doseId: r.id,
+      scheduledAt: formatZonedIso(toZoned(scheduledAt)),
+      alarmAt: alarmAt ? formatZonedIso(toZoned(alarmAt)) : null,
+      patientId: r.patient_id,
+      patientName: r.patient_name,
+      medicationName: r.medication_name,
+      doseQuantity: r.dose_quantity,
+      route: r.route,
+      treatmentId: r.treatment_id,
+      status: r.status,
+      snoozeCount: r.snooze_count,
+      treatmentAlarmsEnabled: r.treatment_alarms_enabled,
+      caregiverAlarmsEnabled: r.caregiver_alarms_enabled,
+    };
+  }
+
+  const overdue = [];
+  const upcoming = [];
+  const dueAlarms = [];
+
+  for (const r of rows) {
+    const scheduledAt = new Date(r.scheduled_at);
+    const alarmAt = r.alarm_at ? new Date(r.alarm_at) : null;
+    const item = mapRow(r);
+    if (scheduledAt.getTime() < now.getTime()) {
+      overdue.push(item);
+    } else if (upcoming.length < limit) {
+      upcoming.push(item);
+    }
+    const alarmsOn =
+      r.caregiver_alarms_enabled && r.treatment_alarms_enabled && alarmAt;
+    // From alarm_at until resolved; drop backlog older than 6h past scheduled.
+    const maxLateMs = 6 * 60 * 60 * 1000;
+    if (
+      alarmsOn &&
+      alarmAt.getTime() <= now.getTime() &&
+      now.getTime() - scheduledAt.getTime() <= maxLateMs
+    ) {
+      dueAlarms.push(item);
+    }
+  }
+
+  return {
+    now: formatZonedIso(toZoned(now)),
+    upcoming: upcoming.slice(0, limit),
+    overdue,
+    dueAlarms,
+  };
+}
+
+/**
+ * @param {string} caregiverId
+ * @param {string} doseId
+ * @param {{ note?: string }} [input]
+ */
+export async function skipDose(caregiverId, doseId, input = {}) {
+  const pool = getPool();
+  const existing = await pool.query(
+    `SELECT d.id, d.treatment_id, d.status
+     FROM scheduled_doses d
+     WHERE d.id = $1 AND d.caregiver_id = $2`,
+    [doseId, caregiverId],
+  );
+  const row = existing.rows[0];
+  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  if (row.status === 'skipped') {
+    return { ok: false, code: 'DUPLICATE' };
+  }
+  if (row.status !== 'pending') {
+    return { ok: false, code: 'CONFLICT' };
+  }
+
+  const note = asString(input.note).trim();
+  if (note.length > 2000) {
+    return {
+      ok: false,
+      code: 'VALIDATION',
+      fields: { note: 'Observação muito longa.' },
+    };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const updated = await client.query(
+      `UPDATE scheduled_doses
+       SET status = 'skipped', updated_at = now()
+       WHERE id = $1 AND caregiver_id = $2 AND status = 'pending'
+       RETURNING id, treatment_id, caregiver_id, scheduled_at, status,
+                 administered_at, alarm_at`,
+      [doseId, caregiverId],
+    );
+    if ((updated.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return { ok: false, code: 'CONFLICT' };
+    }
+    if (note) {
+      await client.query(
+        `INSERT INTO notes (caregiver_id, treatment_id, scheduled_dose_id, body)
+         VALUES ($1, $2, $3, $4)`,
+        [caregiverId, row.treatment_id, doseId, note],
+      );
+    }
+    await client.query('COMMIT');
+    return { ok: true, dose: mapDose(updated.rows[0]) };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * One snooze of +5 minutes; clears alarm_sent_at for re-claim.
+ * @param {string} caregiverId
+ * @param {string} doseId
+ */
+export async function snoozeDose(caregiverId, doseId) {
+  const pool = getPool();
+  const existing = await pool.query(
+    `SELECT id, status, snooze_count, alarm_at
+     FROM scheduled_doses
+     WHERE id = $1 AND caregiver_id = $2`,
+    [doseId, caregiverId],
+  );
+  const row = existing.rows[0];
+  if (!row) return { ok: false, code: 'NOT_FOUND' };
+  if (row.status !== 'pending') return { ok: false, code: 'CONFLICT' };
+  if (row.snooze_count >= 1) return { ok: false, code: 'SNOOZE_EXHAUSTED' };
+
+  const base = row.alarm_at ? new Date(row.alarm_at) : new Date();
+  const nextAlarm = new Date(base.getTime() + 5 * 60 * 1000);
+
+  const updated = await pool.query(
+    `UPDATE scheduled_doses
+     SET alarm_at = $1,
+         snooze_count = snooze_count + 1,
+         alarm_sent_at = NULL,
+         updated_at = now()
+     WHERE id = $2 AND caregiver_id = $3 AND status = 'pending' AND snooze_count < 1
+     RETURNING id, treatment_id, caregiver_id, scheduled_at, status,
+               administered_at, alarm_at, snooze_count`,
+    [nextAlarm, doseId, caregiverId],
+  );
+  if ((updated.rowCount ?? 0) === 0) {
+    return { ok: false, code: 'CONFLICT' };
+  }
+  const d = updated.rows[0];
+  return {
+    ok: true,
+    dose: {
+      ...mapDose(d),
+      snoozeCount: d.snooze_count,
+    },
+  };
+}
+
 export { UUID_RE };

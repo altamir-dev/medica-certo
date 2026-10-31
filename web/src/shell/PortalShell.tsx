@@ -12,6 +12,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/useTheme';
 import { useNow } from '../lib/useNow';
 import { formatNowDate, formatNowTime } from '../lib/clock';
+import { AlarmProvider } from '../alarms/AlarmContext';
 import './PortalShell.css';
 
 /** Own tick so the shell/Outlet do not re-render every second. */
@@ -69,6 +70,7 @@ export function PortalShell() {
   }
 
   return (
+    <AlarmProvider>
     <div className="portal-shell">
       <aside className="portal-menu" aria-label="Menu principal">
         <div className="portal-menu__brand" aria-hidden="true">
@@ -124,5 +126,6 @@ export function PortalShell() {
         <Outlet />
       </main>
     </div>
+    </AlarmProvider>
   );
 }
