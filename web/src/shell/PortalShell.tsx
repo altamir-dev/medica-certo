@@ -27,8 +27,11 @@ const NAV_ITEMS: Array<{
 function titleForPath(pathname: string) {
   if (pathname === '/') return 'Dashboard';
   if (pathname === '/pacientes/novo') return 'Novo paciente';
-  if (pathname.startsWith('/pacientes/')) return 'Editar paciente';
+  if (pathname.match(/^\/pacientes\/[^/]+\/editar$/)) return 'Editar paciente';
+  if (pathname.match(/^\/pacientes\/[^/]+\/tratamentos/)) return 'Tratamento';
+  if (pathname.match(/^\/pacientes\/[^/]+$/)) return 'Paciente';
   if (pathname.startsWith('/pacientes')) return 'Pacientes';
+  if (pathname.startsWith('/tratamentos/')) return 'Tratamento';
   if (pathname === '/medicamentos/novo') return 'Novo medicamento';
   if (pathname.startsWith('/medicamentos/')) return 'Editar medicamento';
   if (pathname.startsWith('/medicamentos')) return 'Medicamentos';

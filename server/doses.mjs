@@ -413,4 +413,249 @@ export async function updateAdministration(caregiverId, doseId, input) {
   }
 }
 
+const MED_COLORS = [
+  '#3b82f6',
+  '#22c55e',
+  '#a855f7',
+  '#f97316',
+  '#06b6d4',
+  '#ec4899',
+  '#eab308',
+  '#14b8a6',
+];
+
+/**
+ * Calendário da Home: pacientes × horários (ontem → +6d).
+ * @param {string} caregiverId
+ * @param {{ from?: string, to?: string }} [range]
+ */
+export async function getCaregiverCalendar(caregiverId, range = {}) {
+  const pool = getPool();
+  const now = new Date();
+  const today = civilDate(now);
+
+  let fromDay =
+    range.from && /^\d{4}-\d{2}-\d{2}$/.test(range.from)
+      ? range.from
+      : addDaysYmd(today, -1);
+  let toDay =
+    range.to && /^\d{4}-\d{2}-\d{2}$/.test(range.to)
+      ? range.to
+      : addDaysYmd(today, 6);
+  if (fromDay > toDay) {
+    const tmp = fromDay;
+    fromDay = toDay;
+    toDay = tmp;
+  }
+
+  const patientsRes = await pool.query(
+    `SELECT id, name
+     FROM patients
+     WHERE caregiver_id = $1
+     ORDER BY lower(name) ASC`,
+    [caregiverId],
+  );
+  const patients = patientsRes.rows;
+
+  // Estender tratamentos contínuos ativos
+  const continuous = await pool.query(
+    `SELECT id FROM treatments
+     WHERE caregiver_id = $1 AND status = 'active' AND ends_on IS NULL`,
+    [caregiverId],
+  );
+  for (const t of continuous.rows) {
+    await maybeExtendTreatment(caregiverId, t.id);
+  }
+
+  /** @type {Map<string, string>} */
+  const colorByPatient = new Map();
+  patients.forEach((p, idx) => {
+    colorByPatient.set(p.id, MED_COLORS[idx % MED_COLORS.length]);
+  });
+
+  const patientIds = patients.map((p) => p.id);
+  /** @type {{
+   *   id: string,
+   *   treatment_id: string,
+   *   patient_id: string,
+   *   patient_name: string,
+   *   medication_name: string,
+   *   dose_quantity: string,
+   *   route: string,
+   *   scheduled_at: Date|string,
+   *   status: string,
+   *   administered_at: Date|string|null,
+   * }[]} */
+  let doseRows = [];
+  if (patientIds.length > 0) {
+    const dosesRes = await pool.query(
+      `SELECT d.id, d.treatment_id, d.scheduled_at, d.status, d.administered_at,
+              t.patient_id, t.dose_quantity, t.route,
+              p.name AS patient_name,
+              m.name AS medication_name
+       FROM scheduled_doses d
+       JOIN treatments t ON t.id = d.treatment_id
+       JOIN patients p ON p.id = t.patient_id
+       JOIN medications m ON m.id = t.medication_id
+       WHERE d.caregiver_id = $1
+         AND t.status = 'active'
+         AND d.status <> 'cancelled'
+         AND t.patient_id = ANY($2::uuid[])
+         AND d.scheduled_at >= $3::timestamptz
+         AND d.scheduled_at <= ($4::date + time '23:59:59.999') AT TIME ZONE 'America/Sao_Paulo'
+       ORDER BY d.scheduled_at ASC`,
+      [caregiverId, patientIds, `${fromDay}T00:00:00-03:00`, toDay],
+    );
+    doseRows = dosesRes.rows;
+  }
+
+  /** @type {Set<string>} */
+  const slotSet = new Set();
+  /** @type {Record<string, Array<{
+   *   patientId: string,
+   *   patientName: string,
+   *   color: string,
+   *   hasPending: boolean,
+   *   isNext: boolean,
+   *   isOverdue: boolean,
+   *   doses: Array<{
+   *     doseId: string,
+   *     treatmentId: string,
+   *     medicationName: string,
+   *     doseQuantity: string,
+   *     route: string,
+   *     scheduledAt: string,
+   *     status: string,
+   *     administeredAt: string | null,
+   *     isNext: boolean,
+   *     isOverdue: boolean,
+   *   }>
+   * }>} */
+  const byDaySlot = {};
+
+  /** @type {Map<string, Map<string, typeof byDaySlot[string][0]>>} */
+  // key day|slot -> patientId -> chip
+  /** @type {Map<string, Map<string, any>>} */
+  const nest = new Map();
+
+  /** @type {{ doseId: string, scheduledAt: Date }[]} */
+  const pendingForNext = [];
+
+  for (const row of doseRows) {
+    const z = toZoned(row.scheduled_at);
+    const day = z.toPlainDate().toString();
+    const slot = localHm(z);
+    slotSet.add(slot);
+    const cellKey = `${day}|${slot}`;
+    if (!nest.has(cellKey)) nest.set(cellKey, new Map());
+    const byPatient = nest.get(cellKey);
+    let chip = byPatient.get(row.patient_id);
+    if (!chip) {
+      chip = {
+        patientId: row.patient_id,
+        patientName: row.patient_name,
+        color: colorByPatient.get(row.patient_id) ?? MED_COLORS[0],
+        hasPending: false,
+        isNext: false,
+        isOverdue: false,
+        doses: [],
+      };
+      byPatient.set(row.patient_id, chip);
+    }
+    const isOverdue =
+      row.status === 'pending' &&
+      new Date(row.scheduled_at).getTime() < now.getTime();
+    const dose = {
+      doseId: row.id,
+      treatmentId: row.treatment_id,
+      medicationName: row.medication_name,
+      doseQuantity: row.dose_quantity,
+      route: row.route,
+      scheduledAt: formatZonedIso(z),
+      status: row.status,
+      administeredAt: row.administered_at
+        ? formatZonedIso(toZoned(row.administered_at))
+        : null,
+      isNext: false,
+      isOverdue,
+    };
+    chip.doses.push(dose);
+    if (row.status === 'pending') {
+      chip.hasPending = true;
+      if (isOverdue) chip.isOverdue = true;
+      pendingForNext.push({
+        doseId: row.id,
+        scheduledAt: new Date(row.scheduled_at),
+      });
+    }
+  }
+
+  let nextDoseId = /** @type {string | null} */ (null);
+  if (pendingForNext.length > 0) {
+    const overdue = pendingForNext
+      .filter((d) => d.scheduledAt.getTime() < now.getTime())
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+    const future = pendingForNext
+      .filter((d) => d.scheduledAt.getTime() >= now.getTime())
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+    nextDoseId = (overdue[0] ?? future[0])?.doseId ?? null;
+  }
+
+  for (const [cellKey, byPatient] of nest) {
+    const chips = [...byPatient.values()];
+    for (const chip of chips) {
+      for (const d of chip.doses) {
+        if (d.doseId === nextDoseId) {
+          d.isNext = true;
+          chip.isNext = true;
+        }
+      }
+    }
+    byDaySlot[cellKey] = chips;
+  }
+
+  const yesterday = addDaysYmd(today, -1);
+  /** @type {{ ymd: string, label: string, isToday: boolean, isYesterday: boolean }[]} */
+  const days = [];
+  for (let d = fromDay; d <= toDay; d = addDaysYmd(d, 1)) {
+    const isToday = d === today;
+    const isYesterday = d === yesterday;
+    let label;
+    if (isToday) label = 'Hoje';
+    else if (isYesterday) label = 'Ontem';
+    else {
+      const [y, m, dayNum] = d.split('-').map(Number);
+      label = new Intl.DateTimeFormat('pt-BR', {
+        weekday: 'short',
+        day: '2-digit',
+        month: '2-digit',
+      }).format(new Date(y, m - 1, dayNum));
+    }
+    days.push({ ymd: d, label, isToday, isYesterday });
+  }
+
+  const slots = [...slotSet].sort();
+
+  // Só pacientes com alguma dose na janela (ou todos cadastrados para as abas)
+  const patientsOut = patients.map((p) => ({
+    patientId: p.id,
+    name: p.name,
+    color: colorByPatient.get(p.id) ?? MED_COLORS[0],
+  }));
+
+  return {
+    ok: true,
+    calendar: {
+      from: fromDay,
+      to: toDay,
+      today,
+      patients: patientsOut,
+      slots,
+      days,
+      byDaySlot,
+      nextDoseId,
+    },
+  };
+}
+
 export { UUID_RE };

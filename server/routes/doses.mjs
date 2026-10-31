@@ -2,6 +2,7 @@ import { sendError } from '../auth.mjs';
 import {
   UUID_RE,
   administerDose,
+  getCaregiverCalendar,
   getPatientSheet,
   updateAdministration,
 } from '../doses.mjs';
@@ -11,6 +12,20 @@ import { getPatient } from '../patients.mjs';
  * @param {import('fastify').FastifyInstance} app
  */
 export async function dosesRoutes(app) {
+  app.get('/api/dashboard/calendar', async (request, reply) => {
+    if (!request.caregiver) {
+      return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');
+    }
+    const q = /** @type {Record<string, string | undefined>} */ (
+      request.query ?? {}
+    );
+    const result = await getCaregiverCalendar(request.caregiver.id, {
+      from: q.from,
+      to: q.to,
+    });
+    return { calendar: result.calendar };
+  });
+
   app.get('/api/patients/:id/sheet', async (request, reply) => {
     if (!request.caregiver) {
       return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');

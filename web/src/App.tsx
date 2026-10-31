@@ -4,6 +4,7 @@ import { RequireAuth } from './auth/RequireAuth';
 import { PortalShell } from './shell/PortalShell';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { LoginPage } from './pages/LoginPage';
+import { HomePage } from './pages/HomePage';
 import { PatientsPage } from './pages/PatientsPage';
 import { PatientFormPage } from './pages/PatientFormPage';
 import { PatientDetailPage } from './pages/PatientDetailPage';
@@ -22,16 +23,7 @@ export function App() {
 
           <Route element={<RequireAuth />}>
             <Route element={<PortalShell />}>
-              <Route
-                index
-                element={
-                  <PlaceholderPage
-                    title="Bem-vindo ao Medica Certo"
-                    description="Você está autenticado. Cadastre pacientes e medicamentos; configure tratamentos e veja a grade."
-                    showHealth
-                  />
-                }
-              />
+              <Route index element={<HomePage />} />
               <Route path="pacientes" element={<PatientsPage />} />
               <Route path="pacientes/novo" element={<PatientFormPage />} />
               <Route path="pacientes/:id/editar" element={<PatientFormPage />} />
