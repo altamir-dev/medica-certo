@@ -21,6 +21,8 @@ import {
   type PatientSheet,
   type SheetChip,
 } from '../api/doses';
+import { nearestSlot } from '../lib/clock';
+import { useNow } from '../lib/useNow';
 import './PatientsPage.css';
 import './Treatments.css';
 import './PatientSheet.css';
@@ -105,6 +107,7 @@ const GRID_CELLS = GRID_ROWS * GRID_COLS;
 
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const now = useNow(1000);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [sheet, setSheet] = useState<PatientSheet | null>(null);
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
@@ -160,6 +163,11 @@ export function PatientDetailPage() {
     });
     return map;
   }, [sheet]);
+
+  const nearest = useMemo(
+    () => (sheet ? nearestSlot(sheet.slots, now) : null),
+    [sheet, now],
+  );
 
   function openChip(chip: SheetChip) {
     setModalChip(chip);
@@ -345,7 +353,10 @@ export function PatientDetailPage() {
                 >
                   <div className="cal-corner">Dia</div>
                   {sheet.slots.map((slot) => (
-                    <div key={slot} className="cal-slot-head">
+                    <div
+                      key={slot}
+                      className={`cal-slot-head${slot === nearest ? ' is-nearest' : ''}`}
+                    >
                       {slot}
                     </div>
                   ))}
@@ -373,7 +384,7 @@ export function PatientDetailPage() {
                         return (
                           <div
                             key={key}
-                            className={`cal-cell${day.isToday ? ' is-today' : ''}`}
+                            className={`cal-cell${day.isToday ? ' is-today' : ''}${slot === nearest ? ' is-nearest' : ''}`}
                           >
                             <div
                               className="cal-cell-grid"

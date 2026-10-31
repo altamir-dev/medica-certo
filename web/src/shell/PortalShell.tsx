@@ -10,6 +10,8 @@ import {
 } from '@phosphor-icons/react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/useTheme';
+import { useNow } from '../lib/useNow';
+import { formatNowRealtime } from '../lib/clock';
 import './PortalShell.css';
 
 const NAV_ITEMS: Array<{
@@ -39,19 +41,12 @@ function titleForPath(pathname: string) {
   return 'Medica Certo';
 }
 
-function formatNow() {
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'full',
-    timeStyle: 'short',
-    timeZone: 'America/Sao_Paulo',
-  }).format(new Date());
-}
-
 export function PortalShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const auth = useAuth();
   const [theme, toggleTheme] = useTheme();
+  const now = useNow(1000);
   const title = titleForPath(location.pathname);
   const ThemeIcon = theme === 'dark' ? Sun : Moon;
 
@@ -109,7 +104,9 @@ export function PortalShell() {
             <p className="portal-header__user">{auth.caregiver.name}</p>
           ) : null}
         </div>
-        <p className="portal-header__meta">{formatNow()}</p>
+        <p className="portal-header__meta" aria-live="polite">
+          {formatNowRealtime(now)}
+        </p>
       </header>
 
       <main className="portal-main">

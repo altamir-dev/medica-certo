@@ -15,6 +15,8 @@ import {
   type CaregiverCalendar,
 } from '../api/dashboard';
 import { administerDose, updateAdministration } from '../api/doses';
+import { nearestSlot } from '../lib/clock';
+import { useNow } from '../lib/useNow';
 import './PatientsPage.css';
 import './Treatments.css';
 import './PatientSheet.css';
@@ -79,6 +81,7 @@ type SlotModal = {
 
 export function HomePage() {
   const navigate = useNavigate();
+  const now = useNow(1000);
   const [calendar, setCalendar] = useState<CaregiverCalendar | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusPatientId, setFocusPatientId] = useState<string | null>(null);
@@ -121,6 +124,11 @@ export function HomePage() {
     });
     return map;
   }, [calendar]);
+
+  const nearest = useMemo(
+    () => (calendar ? nearestSlot(calendar.slots, now) : null),
+    [calendar, now],
+  );
 
   function openPatientChip(
     chip: CalendarPatientChip,
@@ -292,7 +300,10 @@ export function HomePage() {
                 >
                   <div className="cal-corner">Dia</div>
                   {calendar.slots.map((slot) => (
-                    <div key={slot} className="cal-slot-head">
+                    <div
+                      key={slot}
+                      className={`cal-slot-head${slot === nearest ? ' is-nearest' : ''}`}
+                    >
                       {slot}
                     </div>
                   ))}
@@ -322,7 +333,7 @@ export function HomePage() {
                         return (
                           <div
                             key={key}
-                            className={`cal-cell${day.isToday ? ' is-today' : ''}`}
+                            className={`cal-cell${day.isToday ? ' is-today' : ''}${slot === nearest ? ' is-nearest' : ''}`}
                           >
                             <div
                               className="cal-cell-grid"

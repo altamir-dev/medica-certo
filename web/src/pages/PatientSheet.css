@@ -90,6 +90,22 @@
   background: color-mix(in srgb, var(--paper) 88%, var(--ink) 12%);
 }
 
+.cal-slot-head.is-nearest {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--primary) 22%, var(--paper));
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
+.cal-cell.is-nearest {
+  background: color-mix(in srgb, var(--primary) 12%, var(--paper));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.cal-day.is-today.cal-cell.is-nearest,
+.cal-cell.is-today.is-nearest {
+  background: color-mix(in srgb, var(--primary) 18%, var(--paper));
+}
+
 .cal-day {
   position: sticky;
   left: 0;
