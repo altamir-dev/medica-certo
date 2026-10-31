@@ -76,7 +76,11 @@ export function PatientFormPage() {
       } else if (id) {
         await updatePatient(id, payload);
       }
-      navigate('/pacientes', { replace: true });
+      if (mode === 'edit' && id) {
+        navigate(`/pacientes/${id}`, { replace: true });
+      } else {
+        navigate('/pacientes', { replace: true });
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.fields) setFieldErrors(err.fields);

@@ -15,9 +15,9 @@ Folha + despertadores  →  MVP utilizável no dia a dia  →  Multi-cuidador e 
 
 | Fase | Nome | Resultado para o cuidador | Status |
 |---|---|---|---|
-| 0 | Fundação | PRD validado + design aprovado + projeto sobe | PR1–PR4 prontos — próximo: deploy VPS / PR5 |
+| 0 | Fundação | PRD validado + design aprovado + projeto sobe | PR1–PR6 prontos — próximo: deploy VPS / PR7 |
 | 1 | Identidade e cadastros | Login; cadastra pacientes e medicamentos | Auth + pacientes + medicamentos prontos |
-| 2 | Tratamento e grade | Configura esquema e vê a grade (substitui a folha) | Pendente |
+| 2 | Tratamento e grade | Configura esquema e vê a grade (substitui a folha) | PR5+PR6 prontos |
 | 3 | Dia a dia | Dashboard + marcar dose / pular (substitui o X) | Pendente |
 | 4 | Alarmes | Notificações no app (substitui despertadores) | Pendente |
 | 5 | Endurecimento MVP | Uso real estável; critérios do PRD atendidos | Pendente |
@@ -203,4 +203,5 @@ Fase 4 pode iniciar em paralelo o spike de Web Push/PWA assim que a Fase 0 fecha
 4. ~~**PR2 — Auth**~~ e-mail/senha + sessão cookie (`docs/adr/003-auth-session.md`)
 5. ~~**PR3 — Pacientes**~~ CRUD + UI `/pacientes` (R2)
 6. ~~**PR4 — Medicamentos**~~ CRUD + busca + foto + fluxo “não achou → cadastrar” (R3 / 1.3–1.4)
-7. Em seguida deploy VPS e **PR5** (domínio de esquema + grade); fases 2–5 conforme o plano de PRs
+7. ~~**PR5+PR6 — Tratamento e grade**~~ domínio/API + UI a partir do paciente (R4–R6); toggle de alarmes
+8. Em seguida deploy VPS e **PR7** (dashboard + registro de dose); fases 3–5 conforme o plano de PRs

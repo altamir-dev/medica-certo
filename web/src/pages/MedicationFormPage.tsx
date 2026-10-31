@@ -214,7 +214,14 @@ export function MedicationFormPage() {
         }
       }
 
-      navigate(returnTo ?? '/medicamentos', { replace: true });
+      if (returnTo && medicationId) {
+        const sep = returnTo.includes('?') ? '&' : '?';
+        navigate(`${returnTo}${sep}medicationId=${encodeURIComponent(medicationId)}`, {
+          replace: true,
+        });
+      } else {
+        navigate(returnTo ?? '/medicamentos', { replace: true });
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === 'DUPLICATE_NAME') {

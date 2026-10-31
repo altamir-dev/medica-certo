@@ -106,7 +106,9 @@ export function PatientsPage() {
           {patients.map((patient) => (
             <article key={patient.id} className="portal-card patients-row">
               <div className="patients-row__main">
-                <h2 className="patients-row__name">{patient.name}</h2>
+                <h2 className="patients-row__name">
+                  <Link to={`/pacientes/${patient.id}`}>{patient.name}</Link>
+                </h2>
                 <p className="patients-row__meta">
                   Nascimento {formatBirthDate(patient.birthDate)} · Sono{' '}
                   {patient.sleepStart}–{patient.sleepEnd}
@@ -115,6 +117,12 @@ export function PatientsPage() {
               <div className="patients-row__actions">
                 <Link
                   to={`/pacientes/${patient.id}`}
+                  className="patients-btn patients-btn--primary"
+                >
+                  Abrir
+                </Link>
+                <Link
+                  to={`/pacientes/${patient.id}/editar`}
                   className="patients-btn patients-btn--secondary"
                 >
                   <PencilSimple weight="bold" size={18} aria-hidden="true" />

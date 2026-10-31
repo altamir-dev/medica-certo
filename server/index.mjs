@@ -10,6 +10,7 @@ import { healthRoutes } from './routes/health.mjs';
 import { authRoutes } from './routes/auth.mjs';
 import { patientsRoutes } from './routes/patients.mjs';
 import { medicationsRoutes } from './routes/medications.mjs';
+import { treatmentsRoutes } from './routes/treatments.mjs';
 
 const app = Fastify({
   logger: {
@@ -31,6 +32,7 @@ await app.register(healthRoutes);
 await app.register(authRoutes);
 await app.register(patientsRoutes);
 await app.register(medicationsRoutes);
+await app.register(treatmentsRoutes);
 
 if (config.isProd && existsSync(config.webDistDir)) {
   await app.register(fastifyStatic, {

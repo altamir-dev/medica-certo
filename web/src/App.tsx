@@ -6,8 +6,12 @@ import { PlaceholderPage } from './pages/PlaceholderPage';
 import { LoginPage } from './pages/LoginPage';
 import { PatientsPage } from './pages/PatientsPage';
 import { PatientFormPage } from './pages/PatientFormPage';
+import { PatientDetailPage } from './pages/PatientDetailPage';
 import { MedicationsPage } from './pages/MedicationsPage';
 import { MedicationFormPage } from './pages/MedicationFormPage';
+import { TreatmentFormPage } from './pages/TreatmentFormPage';
+import { TreatmentDetailPage } from './pages/TreatmentDetailPage';
+import { TreatmentGradePage } from './pages/TreatmentGradePage';
 
 export function App() {
   return (
@@ -23,14 +27,19 @@ export function App() {
                 element={
                   <PlaceholderPage
                     title="Bem-vindo ao Medica Certo"
-                    description="Você está autenticado. Cadastre pacientes e medicamentos; tratamentos entram na PR5."
+                    description="Você está autenticado. Cadastre pacientes e medicamentos; configure tratamentos e veja a grade."
                     showHealth
                   />
                 }
               />
               <Route path="pacientes" element={<PatientsPage />} />
               <Route path="pacientes/novo" element={<PatientFormPage />} />
-              <Route path="pacientes/:id" element={<PatientFormPage />} />
+              <Route path="pacientes/:id/editar" element={<PatientFormPage />} />
+              <Route
+                path="pacientes/:id/tratamentos/novo"
+                element={<TreatmentFormPage />}
+              />
+              <Route path="pacientes/:id" element={<PatientDetailPage />} />
               <Route path="medicamentos" element={<MedicationsPage />} />
               <Route
                 path="medicamentos/novo"
@@ -40,6 +49,11 @@ export function App() {
                 path="medicamentos/:id"
                 element={<MedicationFormPage />}
               />
+              <Route
+                path="tratamentos/:id/grade"
+                element={<TreatmentGradePage />}
+              />
+              <Route path="tratamentos/:id" element={<TreatmentDetailPage />} />
               <Route
                 path="configuracoes"
                 element={

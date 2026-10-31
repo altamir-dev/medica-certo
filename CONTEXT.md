@@ -64,6 +64,14 @@ _Evitar_: check, marcação, X
 Tela principal do cuidador com data/hora atual e as próximas doses previstas (para quem e qual dose).
 _Evitar_: home, painel
 
+**Janela de sono**:
+Intervalo diário em que o paciente costuma dormir; usada na sugestão de horário da 1ª dose (modo intervalo regular). Padrão 22:00–07:00.
+_Evitar_: quiet hours, horário silencioso (para alarmes de medicamento)
+
+**Horários customizados**:
+Modo do esquema em que uma lista de horas do dia se repete em cada dia do período do tratamento.
+_Evitar_: horário fixo (como sinônimo vago do conceito inteiro)
+
 ## Relacionamentos
 
 - Um **Cuidador** gerencia um ou mais **Pacientes**.

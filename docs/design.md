@@ -202,17 +202,19 @@ Timezone: **America/Sao_Paulo** (fixável no cuidador no pós-MVP; MVP fixo BRT)
 **Geração na criação / preview** (inclui `starts_at` no passado — digitação da folha, marcos M1/M5):
 
 ```
-range_start ← max(starts_at, now − 31 days)   # cap de backfill (TZ do app)
-se ends_on presente:
-  range_end ← ends_limit                      # curso completo até o dia fim (R4.4)
+se ends_on presente:                          # curso com fim — grade completa (R4.4)
+  range_start ← starts_at
+  range_end ← ends_limit
+  truncatedBackfill ← false
 senão:  # contínuo
+  range_start ← max(starts_at, now − 31 days) # cap de backfill
   range_end ← max(starts_at, now) + 7 days
-truncatedBackfill ← (range_start > starts_at)
+  truncatedBackfill ← (range_start > starts_at)
 gerar todas as doses com scheduled_at ∈ [range_start, range_end]
 ```
 
 - Doses com `scheduled_at` &lt; now nascem `pending` e aparecem como **atrasadas** no dashboard/grade (backfill do papel).
-- Cap de backfill: não gerar mais de **31 dias** antes de `now`; se `starts_at` for mais antigo, `truncatedBackfill: true` no preview e aviso na UI.
+- Cap de backfill de **31 dias** aplica-se **somente** a tratamentos contínuos; cursos com `ends_on` materializam a grade inteira (necessário para migrar folhas antigas / marco M1).
 - `POST /api/treatments/preview` usa **a mesma** função/regra de limites (sem persistir).
 
 #### Modo `regular_interval`
