@@ -19,17 +19,15 @@ A posologia sugerida não substitui o médico nem a bula. O app é o caderno do 
 
 **Visão multimodal numa chamada, saída JSON com schema, e ancoragem determinística em snapshot local da Anvisa/CMED.** O modelo lê a foto. O banco oficial confirma nome, princípio ativo, concentração e apresentação. O que o modelo “sabe de memória” sobre indicação ou posologia usual não entra no cadastro.
 
-**Cliente único, compatível com a API da OpenAI** (`/v1/chat/completions` + `response_format` JSON schema). A URL e a chave vêm de ambiente, então o mesmo código fala com a OpenRouter ou com o 9router.
+**Provedor: OpenRouter.** O servidor chama `https://openrouter.ai/api/v1` no formato chat completions. Não há cliente da API direta da DeepSeek nem do 9router neste fluxo. A base URL também vem de `AI_BASE_URL`, para o deploy apontar para a OpenRouter sem recompilar.
 
-**Modelo pinado para produção: `deepseek/deepseek-v4.1-flash-1017`.** É o snapshot de 17/10/2026 do DeepSeek V4.1 Flash, o Flash mais novo com visão no catálogo da OpenRouter em 31/10/2026. Na API da própria DeepSeek o mesmo checkpoint responde como `deepseek-flash`. Visão é nativa (não é o V4 Flash Vision Exp, que continua experimental, nem o Flash 0731, que é só texto). Aceita `response_format` com JSON schema. A chamada desliga o raciocínio (`reasoning.enabled: false`), para a saída ser o JSON e não uma cadeia de pensamento cobrada como token de saída.
+**Modelo e chave só em ambiente.** O código não traz slug nem segredo. Com `AI_ENABLED=1`, o boot falha se `AI_MODEL` ou `AI_API_KEY` estiver vazio. O valor previsto de `AI_MODEL` é `deepseek/deepseek-v4.1-flash-1017` (snapshot de 17/10/2026 do DeepSeek V4.1 Flash, o Flash mais novo com visão no catálogo em 31/10/2026). Visão nativa, JSON schema em `response_format`. A chamada desliga o raciocínio (`reasoning.enabled: false`), para a saída ser o JSON. Trocar o modelo é editar o `.env` da VPS e subir de novo; isso invalida o aceite de envio da imagem. O alias `~deepseek/deepseek-flash-latest` continua fora do exemplo: não tem preço próprio, e um alias vizinho já apontou para um Flash sem visão.
 
-O slug fica fixo. O alias `~deepseek/deepseek-flash-latest` acompanha “o último Flash”, mas não tem preço próprio e um alias vizinho (`~deepseek/deepseek-v4-flash-latest`) já chegou a apontar para um Flash sem visão. Quando sair outro snapshot, troca-se `AI_MODEL` de propósito — isso também invalida o aceite de envio da imagem, que é o efeito certo.
+Preço de tabela desse slug na OpenRouter: **US$ 0,0141 / US$ 0,144 por 1M tokens**, ordem de **US$ 0,00013 por foto**. A OpenRouter escolhe o host. Latência alvo **5 a 15 s**; timeout **45 s**. O pedido manda `data_collection: "deny"` e `require_parameters: true`.
 
-Na OpenRouter esse slug é servido por dezenas de hosts, com preço e política diferentes. A imagem da receita vai só para o host **DeepSeek**, com `provider.only: ["deepseek"]`, `allow_fallbacks: false`, `data_collection: "deny"` e `require_parameters: true`. O preço de tabela desse host é cerca de **US$ 0,15 / US$ 0,60 por 1M tokens**, ordem de **US$ 0,001 por foto**. O anúncio de US$ 0,0141 / US$ 0,144 é o host mais barato (Open Inference e similares), que este fluxo não usa. Latência alvo **5 a 15 s**; timeout **45 s**. A OpenRouter não oferece este modelo em roteamento só na UE.
+**Jev (`typesafe/jev-router`) fica de fora deste fluxo.** Jev escolhe outro modelo a cada pedido: o custo não tem teto, quem vê a receita muda, e o JSON schema deixa de ser garantido.
 
-**Jev (`typesafe/jev-router`) fica de fora deste fluxo**, mesmo que o 9router o exponha como alias. Jev escolhe outro modelo a cada pedido: o custo não tem teto, o subprocessador que vê a receita muda, e o suporte a JSON schema deixa de ser garantido. Se “Jev” no 9router for só um apelido para um modelo de visão fixo, esse apelido pode ser o `AI_MODEL` — desde que não haja fallback para outro provedor.
-
-`openai/gpt-4.1-mini` e **Gemini 2.5 Flash-Lite** ficam na tabela de comparação. Flash-Lite é mais rápido e, no anúncio, mais barato que o host DeepSeek pinado; desde 18/10/2026 há relato de que rotas Gemini na OpenRouter deixaram de ser zero-retention.
+`openai/gpt-4.1-mini` e **Gemini 2.5 Flash-Lite** ficam na tabela de comparação. Desde 18/10/2026 há relato de que rotas Gemini na OpenRouter deixaram de ser zero-retention.
 
 OCR clássico (Tesseract ou API de OCR) e depois um LLM de texto fica como alternativa rejeitada para a v1: foto de caixa com reflexo e receita manuscrita são exatamente onde o OCR quebra, e o segundo modelo passa a alucinar em cima de texto ruim.
 
@@ -353,8 +351,7 @@ Conta de uma foto já reduzida (lado maior 1600 px, JPEG):
 
 | Opção | Entrada / saída por 1M | Custo por foto | Latência típica | Visão | Retenção no caminho OpenRouter |
 |---|---|---|---|---|---|
-| **`deepseek/deepseek-v4.1-flash-1017`, host DeepSeek (recomendado)** | US$ 0,15 / US$ 0,60 | **≈ US$ 0,001** | 5–15 s (fila do host ~1 s, ~110 tokens/s na tabela) | Sim, nativa. JSON schema sim | Vários hosts do mesmo slug estão na lista ZDR; o host oficial DeepSeek precisa ser reconferido na F2. Sem rota só-UE |
-| O mesmo slug no host mais barato (não usar) | US$ 0,0141 / US$ 0,144 | ≈ US$ 0,00013 | variável | Sim, se o host não for quantizado demais | Troca Baidu, SiliconFlow, Alibaba, Venice e outros. Fora deste fluxo |
+| **`deepseek/deepseek-v4.1-flash-1017` via OpenRouter (valor previsto de `AI_MODEL`)** | US$ 0,0141 / US$ 0,144 | **≈ US$ 0,00013** | 5–15 s, conforme o host que a OpenRouter escolher | Sim, nativa. JSON schema sim | `data_collection: deny`. O host concreto varia. Sem rota só-UE |
 | `~deepseek/deepseek-flash-latest` | o do snapshot da vez | sem preço fixo | a do snapshot | Hoje sim; o alias vizinho `v4-flash-latest` já foi só texto | O subprocessador e o checkpoint mudam sem deploy |
 | `google/gemini-2.5-flash-lite` | US$ 0,10 / US$ 0,40 | ≈ US$ 0,0005 | 2–8 s | Sim | Relato de 18/10/2026: Gemini na OpenRouter deixou de ser ZDR |
 | `openai/gpt-4.1-mini` | US$ 0,40 / US$ 1,60 | ≈ US$ 0,002 | 5–15 s | Sim | `data_collection: deny`, se ainda houver endpoint elegível |
@@ -364,29 +361,24 @@ Conta de uma foto já reduzida (lado maior 1600 px, JPEG):
 | `typesafe/jev-router` | o do modelo que ele escolher | sem teto | variável | Só se o escolhido tiver visão | Subprocessador muda por pedido |
 | 9router em si | US$ 0 no proxy | o do upstream | soma o hop local | depende do alias | A imagem continua até o provedor final |
 
-Volume doméstico no host DeepSeek pinado: 30 fotos/mês ficam abaixo de US$ 0,03. Quinhentas fotos ficam em torno de US$ 0,40. O teto de **US$ 5 por mês** e **30 análises por dia** continua de pé: ele pega loop de retry e chave vazada, não o uso normal de um cuidador.
-
-O Flash pinado é a escolha porque foi o pedido (o último DeepSeek Flash com visão) e porque o nome do remédio não pode depender de um host quantizado sorteado na hora. O preço de anúncio mais baixo fica de fora junto com esses hosts.
+Volume doméstico nesse preço de tabela: 30 fotos/mês ficam abaixo de US$ 0,01. Quinhentas fotos ficam em torno de US$ 0,07. O teto de **US$ 5 por mês** e **30 análises por dia** continua de pé: ele pega loop de retry e chave vazada, não o uso normal de um cuidador. Se a OpenRouter cobrar o host mais caro da mesma página (cerca de US$ 0,15 / US$ 0,60), a foto vai para perto de US$ 0,001 e o mês de 30 fotos continua abaixo de US$ 0,03. Os preços em `AI_PRICE_*` acompanham o que estiver no `.env`.
 
 Por que não Jev aqui: a documentação da OpenRouter descreve o Jev Router como um modelo que **escolhe** outro modelo e o esforço de raciocínio por pedido, cobrando o preço desse outro modelo. Não há preço fixo. Para código no 9router isso é cômodo. Para uma receita, o aviso de LGPD precisa nomear quem recebe a imagem, e o schema JSON precisa ser honrado. Um roteador que pode cair num modelo sem `json_schema` ou sem visão quebra os dois.
 
-9router ([decolua/9router](https://github.com/decolua/9router), endpoint OpenAI em `http://localhost:20128/v1` no uso local) entra como **transporte**, não como modelo. Serve para apontar `AI_BASE_URL` ao roteador que já existe, com `AI_MODEL=deepseek/deepseek-v4.1-flash-1017` e fallback automático desligado nessa rota. No container da VPS, `localhost` é o próprio app: o 9router teria de estar na rede Docker, e a imagem da receita ainda seguiria para o upstream. Não é o default de produção. Não colocar a chave do 9router no repositório.
+O 9router fica fora deste fluxo. O provedor de produção é a OpenRouter.
 
-Implementação do cliente: `fetch` com timeout, sem SDK obrigatório. Corpo no formato chat completions. Para a OpenRouter, headers `HTTP-Referer` = `https://medica-certo.altamir.dev` e `X-Title` = `Medica Certo`, mais:
+Implementação do cliente: `fetch` com timeout, sem SDK. O slug do body é o valor de `AI_MODEL`. A chave é o Bearer de `AI_API_KEY`. Nenhum dos dois tem default no código. Headers `HTTP-Referer` e `X-Title` saem de `AI_HTTP_REFERER` e `AI_APP_TITLE`. O restante do pedido:
 
 ```json
-"model": "deepseek/deepseek-v4.1-flash-1017",
+"model": "<conteúdo de AI_MODEL>",
 "reasoning": { "enabled": false },
 "provider": {
-  "only": ["deepseek"],
   "data_collection": "deny",
-  "allow_fallbacks": false,
-  "require_parameters": true,
-  "zdr": true
+  "require_parameters": true
 }
 ```
 
-`only` impede que a OpenRouter mande a receita para outro dos ~35 hosts desse slug. `require_parameters` evita host que ignore `response_format`. `zdr: true` restringe a endpoints de retenção zero. Se a interseção (host DeepSeek + ZDR + JSON schema) vier vazia, a F2 responde `AI_UNAVAILABLE` e a tela oferece o cadastro manual. Não há queda silenciosa para Open Inference, SiliconFlow ou Baidu. Caminho alternativo, se essa interseção falhar e o Altamir aceitar: `AI_BASE_URL=https://api.deepseek.com/v1` e `AI_MODEL=deepseek-flash`, ainda um único subprocessador, sem a lista ZDR da OpenRouter.
+`require_parameters` evita endpoint que ignore `response_format`. `data_collection: deny` evita endpoint que guarde o prompt para treino. A OpenRouter continua escolhendo o host do slug. Se nenhum endpoint cumprir o filtro, a F2 responde `AI_UNAVAILABLE` e a tela oferece o cadastro manual. Não há segundo modelo embutido no código para “salvar” a chamada.
 
 Uma retentativa só quando o HTTP foi 200 e o JSON não valida. Timeout e 5xx não disparam segunda imagem automaticamente (a pessoa é que clica em tentar de novo), para não dobrar custo num provedor instável.
 
@@ -541,9 +533,9 @@ Não vai:
 
 O que a imagem ainda pode levar, se for receita: nome do paciente, documento, CRM, carimbo, às vezes CID ou endereço do consultório. O prompt manda o modelo não ecoar isso, e o servidor corta chaves desconhecidas. Isso reduz o que fica no Postgres. **Não** tira o dado do provedor que já recebeu a imagem. O aviso tem de dizer essa frase, não uma versão suavizada.
 
-Transferência internacional: a imagem sai do Brasil (art. 33) e, com o modelo pinado, segue para a DeepSeek pela OpenRouter. O texto de consentimento nomeia isso (“a imagem é enviada à DeepSeek via OpenRouter”). Troca de `AI_MODEL` ou de `AI_PROVIDER_ONLY` invalida o aceite.
+Transferência internacional: a imagem sai do Brasil (art. 33) e vai para a OpenRouter, que a encaminha a um host do modelo em `AI_MODEL`. O aviso nomeia a OpenRouter e o slug configurado (“a imagem é enviada à OpenRouter, modelo {AI_MODEL}”). Troca de `AI_MODEL` invalida o aceite.
 
-`data_collection: deny`, `zdr: true` e `only: ["deepseek"]`. No dia da F2, conferir se o host DeepSeek desse snapshot ainda entra nos três filtros ao mesmo tempo. Sem queda para outro host. Gemini continua fora do default.
+`data_collection: deny` e `require_parameters: true` vão em todo pedido. O código não fixa `provider.only`. Gemini continua fora do valor previsto de `AI_MODEL`.
 
 9router com fallback para “provedor grátis” é incompatível com este fluxo: a receita iria para um subprocessador que o aviso não nomeou.
 
@@ -579,9 +571,9 @@ Proposta de 30 dias é conservadora para o cuidador conferir uma leitura. Apagar
 
 O contador diário incrementa **antes** da chamada, na mesma transação que cria o evento em estado pendente, para dois cliques não passarem. Estouro responde 429 `RATE_LIMITED` ou 429 `AI_BUDGET` sem chamar o provedor.
 
-Custo estimado usa preços em env (`AI_PRICE_INPUT_PER_MILLION`, `AI_PRICE_OUTPUT_PER_MILLION`), default iguais ao host DeepSeek da tabela (US$ 0,15 e US$ 0,60), não ao anúncio de US$ 0,0141. Se o uso não vier na resposta, estimar 3 000 tokens de entrada e 800 de saída (para cima), para o teto não ficar cego.
+Custo estimado usa preços em env (`AI_PRICE_INPUT_PER_MILLION`, `AI_PRICE_OUTPUT_PER_MILLION`). O exemplo acompanha a tabela do slug previsto (US$ 0,0141 e US$ 0,144). Se o uso não vier na resposta, estimar 3 000 tokens de entrada e 800 de saída (para cima), para o teto não ficar cego.
 
-Chave de API só em ambiente, nunca no repositório, no log ou no cliente. O browser não fala com a OpenRouter. A chave no `.env` da VPS segue o padrão já descrito no README (`chmod 600`, o workflow não envia o arquivo).
+`AI_API_KEY` e `AI_MODEL` só existem em ambiente, nunca no repositório, no log, no cliente ou como constante no servidor. O browser não fala com a OpenRouter. Os dois entram no `.env` da VPS, no padrão já descrito no README (`chmod 600`, o workflow não envia o arquivo).
 
 ### 9.4 Outros pontos já verdadeiros no app, que este fluxo precisa continuar respeitando
 
@@ -604,18 +596,17 @@ O Compose da VPS usa `env_file: .env` e um bloco `environment:` que **não** lis
 | Variável | Exemplo | Função |
 |---|---|---|
 | `AI_ENABLED` | `0` | `1` liga rotas e botão. Default `0` |
-| `AI_BASE_URL` | `https://openrouter.ai/api/v1` | Sem barra final. 9router: URL alcançável **a partir do container** |
-| `AI_API_KEY` | — | Bearer. Vazio com `AI_ENABLED=1` impede o boot ou trata como desligado — preferir falhar o boot, para não achar que a feature está no ar |
-| `AI_MODEL` | `deepseek/deepseek-v4.1-flash-1017` | Slug pinado. Na API direta da DeepSeek, `deepseek-flash`. Sem alias `~…-latest` e sem Jev |
-| `AI_PROVIDER_ONLY` | `deepseek` | Lista do `provider.only`. Vazio só se `AI_BASE_URL` não for OpenRouter |
-| `AI_PROVIDER_NAME` | `DeepSeek via OpenRouter` | Texto do aviso de consentimento. Obrigatório se `AI_ENABLED=1` |
+| `AI_BASE_URL` | `https://openrouter.ai/api/v1` | Sem barra final. Provedor deste fluxo |
+| `AI_API_KEY` | — | Bearer da OpenRouter. Sem default. Vazio com `AI_ENABLED=1` impede o boot |
+| `AI_MODEL` | `deepseek/deepseek-v4.1-flash-1017` | Slug lido do ambiente. Sem default no código. Sem alias `~…-latest` e sem Jev no exemplo |
+| `AI_PROVIDER_NAME` | `OpenRouter` | Texto do aviso, junto com o slug de `AI_MODEL`. Obrigatório se `AI_ENABLED=1` |
 | `AI_TIMEOUT_MS` | `45000` | |
 | `AI_MAX_UPLOAD_BYTES` | `8388608` | 8 MB |
 | `AI_DAILY_LIMIT` | `30` | Por cuidador |
 | `AI_HOURLY_LIMIT` | `10` | Por cuidador |
 | `AI_MONTHLY_BUDGET_USD` | `5` | Estimativa |
-| `AI_PRICE_INPUT_PER_MILLION` | `0.15` | Host DeepSeek pinado, não o piso de US$ 0,0141 |
-| `AI_PRICE_OUTPUT_PER_MILLION` | `0.60` | Idem |
+| `AI_PRICE_INPUT_PER_MILLION` | `0.0141` | Tabela OpenRouter do slug previsto. Ajustar no `.env` se a fatura divergir |
+| `AI_PRICE_OUTPUT_PER_MILLION` | `0.144` | Idem |
 | `AI_HTTP_REFERER` | `https://medica-certo.altamir.dev` | Header da OpenRouter. Vazio se a base não for OpenRouter |
 | `AI_APP_TITLE` | `Medica Certo` | Header `X-Title` |
 | `AI_DATA_COLLECTION` | `deny` | `deny` ou `allow`. Default `deny`. `allow` em produção deve exigir a pergunta em aberto respondida |
@@ -726,7 +717,8 @@ Aceite:
 - Rascunho expirado: arquivo ausente e `extracted` nulo.
 - JPEG de teste com comentário EXIF/GPS, depois da regravação, não contém o marcador GPS (teste no buffer).
 - Consentimento ausente → `CONSENT_REQUIRED` e zero chamadas.
-- Trocar `AI_MODEL` ou `AI_PROVIDER_ONLY` no config do teste invalida o aceite.
+- Trocar `AI_MODEL` no config do teste invalida o aceite.
+- Com `AI_ENABLED=1` e sem `AI_MODEL` ou sem `AI_API_KEY`, o boot falha. O fonte não contém um slug de reserva.
 - `AI_ENABLED=0` → POST 404.
 - Checklist manual do PR: `.env` da VPS ainda não recebe a chave até o Altamir pedir para ligar.
 
@@ -757,9 +749,9 @@ Aceite:
 | Processo morre durante a leitura | Rascunho eterno em `processing` | Expurgo aos 2 min |
 | CSV grande no boot | OOM nos 512 MB | Import para Postgres, query pontual |
 | `pg_trgm` | Extensão a mais | Disponível no Postgres 16 do Compose |
-| OpenRouter manda o mesmo slug DeepSeek para ~35 hosts | Receita em Baidu, SiliconFlow ou um host quantizado, preço e retenção diferentes do aviso | `provider.only: ["deepseek"]`, `zdr: true`, `allow_fallbacks: false`. Interseção vazia vira `AI_UNAVAILABLE` |
+| OpenRouter escolhe o host do slug | A receita pode ir a hosts diferentes, com preço e retenção diferentes | Decisão: o provedor é a OpenRouter. O aviso nomeia a OpenRouter e o `AI_MODEL`. `data_collection: deny` corta quem treina com o prompt. O código não embute outro provedor |
 | Alias `~deepseek/deepseek-flash-latest` | Um dia o “último Flash” pode ser só texto, como já ocorreu com `v4-flash-latest` | Slug datado `deepseek-v4.1-flash-1017`. Troca explícita de `AI_MODEL` |
-| Jev ou fallback do 9router | Subprocessador e custo imprevisíveis | Modelo pinado, `allow_fallbacks: false` |
+| Jev ou 9router | Outro subprocessador no meio do caminho | Fora deste fluxo. Provedor é a OpenRouter; modelo é `AI_MODEL` |
 | Chave no cliente ou no log | Vazamento e custo | Chamada só no servidor; teto mensal |
 | Merge deste ou de um PR seguinte | Deploy de produção | PRs sem merge até o Altamir aprovar. F0 não muda o app; mesmo assim o workflow de `main` faria rebuild se alguém mergear |
 | PRD desatualizado | Escopo “receita fora do MVP” contradiz a feature | Atualizar o PRD na fatia que implementar a F5 |
@@ -768,24 +760,27 @@ Aceite:
 
 ---
 
-## 13. Perguntas para o Altamir decidir
+## 13. Decisões fechadas
 
-1. **Como chegar na DeepSeek.** O modelo ficou decidido: `deepseek/deepseek-v4.1-flash-1017`. Falta o caminho: OpenRouter com `provider.only: ["deepseek"]` (recomendado) ou a API direta `https://api.deepseek.com/v1` com `deepseek-flash`, se na F2 o host oficial não couber em ZDR + `data_collection: deny`. O aviso de consentimento diz que a imagem sai do Brasil e vai para a DeepSeek. Confirma esse texto?
-2. **O que “Jev” aponta no 9router.** É o `typesafe/jev-router` (roteador que escolhe o modelo) ou um alias fixo de um modelo de visão? A recomendação é não usar o roteador Jev neste fluxo. Confirma?
-3. **Receita com vários medicamentos.** A primeira versão útil (F5) cadastra um item, com aviso se houver outros, e a F6 cadastra a lista? Ou a lista é obrigatória já na primeira entrega?
-4. **Quanto tempo a imagem da receita permanece depois do “Cadastrar”.** Apagar no ato (`AI_PRESCRIPTION_RETAIN_DAYS=0`), 24 h, ou 30 dias? O código, sem resposta, fica em 24 h e a produção permanece com a IA desligada.
-5. **Foto de embalagem vira a foto do catálogo?** A recomendação é sim. A de receita nunca vira thumbnail. Confirma os dois?
-6. **Medicamento sem registro** (manipulado, amostra). Cadastrar mesmo assim, só com o que foi lido, é o comportamento desejado?
-7. **Classe terapêutica** pode aparecer como dica na revisão. Ela não deve ser salva em `indication`. Confirma?
-8. **“Por 7 dias”** inclui o dia de início (data fim = início + 6 dias)? A pré-visualização mostra a grade antes de gravar de qualquer forma.
-9. **Tetos.** 30 leituras por dia e US$ 5 estimados por mês servem? O volume real deve ficar muito abaixo.
-10. **PRD.** Na implementação, atualizar a linha que coloca receita fora do MVP, deixando claro que o sistema não prescreve?
-11. **Ligação em produção.** Quem cola `AI_API_KEY` no `.env` da VPS e em que momento? A sugestão é só depois da F7 revisada, com `AI_ENABLED=1` num deploy que você aprove.
-12. **Bula (F8).** Quer posologia usual citada da bula nesta leva, ou o catálogo segue com posologia de referência vazia até uma leva futura?
+- **Provedor:** OpenRouter (`AI_BASE_URL=https://openrouter.ai/api/v1`). Sem API direta da DeepSeek e sem 9router neste fluxo.
+- **Modelo e chave:** só em ambiente (`AI_MODEL`, `AI_API_KEY`), sem default no código. O valor previsto do modelo é `deepseek/deepseek-v4.1-flash-1017`.
+
+## 14. Perguntas para o Altamir decidir
+
+1. **Receita com vários medicamentos.** A primeira versão útil (F5) cadastra um item, com aviso se houver outros, e a F6 cadastra a lista? Ou a lista é obrigatória já na primeira entrega?
+2. **Quanto tempo a imagem da receita permanece depois do “Cadastrar”.** Apagar no ato (`AI_PRESCRIPTION_RETAIN_DAYS=0`), 24 h, ou 30 dias? O código, sem resposta, fica em 24 h e a produção permanece com a IA desligada.
+3. **Foto de embalagem vira a foto do catálogo?** A recomendação é sim. A de receita nunca vira thumbnail. Confirma os dois?
+4. **Medicamento sem registro** (manipulado, amostra). Cadastrar mesmo assim, só com o que foi lido, é o comportamento desejado?
+5. **Classe terapêutica** pode aparecer como dica na revisão. Ela não deve ser salva em `indication`. Confirma?
+6. **“Por 7 dias”** inclui o dia de início (data fim = início + 6 dias)? A pré-visualização mostra a grade antes de gravar de qualquer forma.
+7. **Tetos.** 30 leituras por dia e US$ 5 estimados por mês servem? O volume real deve ficar muito abaixo.
+8. **PRD.** Na implementação, atualizar a linha que coloca receita fora do MVP, deixando claro que o sistema não prescreve?
+9. **Ligação em produção.** Quem cola `AI_API_KEY` e `AI_MODEL` no `.env` da VPS e em que momento? A sugestão é só depois da F7 revisada, com `AI_ENABLED=1` num deploy que você aprove.
+10. **Bula (F8).** Quer posologia usual citada da bula nesta leva, ou o catálogo segue com posologia de referência vazia até uma leva futura?
 
 ---
 
-## 14. Fora deste plano
+## 15. Fora deste plano
 
 - Prescrição emitida pelo app, interação medicamentosa, ajuste por idade ou peso, dose pediátrica calculada.
 - Estoque, código de barras como fluxo principal (o EAN da CMED pode ajudar o match no futuro; não há leitor na v1).
