@@ -17,6 +17,10 @@ import {
   type Treatment,
 } from '../api/treatments';
 import {
+  EndTreatmentDialog,
+  RemoveTreatmentDialog,
+} from './TreatmentStopDialogs';
+import {
   administerDose,
   getPatientSheet,
   updateAdministration,
@@ -62,6 +66,14 @@ function formatStamp(iso: string) {
   return new Intl.DateTimeFormat('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  }).format(new Date(iso));
+}
+
+function formatEndedOn(iso: string | null) {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
     timeZone: 'America/Sao_Paulo',
   }).format(new Date(iso));
 }
@@ -138,6 +150,9 @@ export function PatientDetailPage() {
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusTreatmentId, setFocusTreatmentId] = useState<string | null>(null);
+  const [stopDialog, setStopDialog] = useState<
+    { mode: 'end' | 'remove'; treatment: Treatment } | null
+  >(null);
 
   const [modalChip, setModalChip] = useState<SheetChip | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>('register');
@@ -556,36 +571,126 @@ export function PatientDetailPage() {
         )}
       </section>
 
-      {treatments && treatments.length > 0 ? (
+      {treatments && treatments.some((t) => t.status === 'active') ? (
         <section className="portal-card">
-          <h2 className="treatments-section-title">Tratamentos</h2>
+          <h2 className="treatments-section-title">Medicamentos em uso</h2>
           <div className="treatments-list">
-            {treatments.map((t) => (
-              <article key={t.id} className="treatments-row">
-                <div>
-                  <h3 className="treatments-row__name">
-                    {t.medicationName ?? 'Medicamento'}
-                    <span
-                      className={`treatments-tag treatments-tag--${t.status}`}
+            {treatments
+              .filter((t) => t.status === 'active')
+              .map((t) => (
+                <article key={t.id} className="treatments-row">
+                  <div>
+                    <h3 className="treatments-row__name">
+                      {t.medicationName ?? 'Medicamento'}
+                    </h3>
+                    <p className="patients-row__meta">
+                      {t.doseQuantity} · {t.route}
+                      {t.alarmsEnabled ? ' · alarmes on' : ' · alarmes off'}
+                    </p>
+                  </div>
+                  <div className="treatments-row__actions">
+                    <Link
+                      to={`/tratamentos/${t.id}`}
+                      className="patients-btn patients-btn--secondary"
                     >
-                      {t.status === 'active' ? 'ativo' : 'encerrado'}
-                    </span>
-                  </h3>
-                  <p className="patients-row__meta">
-                    {t.doseQuantity} · {t.route}
-                    {t.alarmsEnabled ? ' · alarmes on' : ' · alarmes off'}
-                  </p>
-                </div>
-                <Link
-                  to={`/tratamentos/${t.id}`}
-                  className="patients-btn patients-btn--secondary"
-                >
-                  Detalhe
-                </Link>
-              </article>
-            ))}
+                      Detalhe
+                    </Link>
+                    <button
+                      type="button"
+                      className="patients-btn patients-btn--primary"
+                      onClick={() => setStopDialog({ mode: 'end', treatment: t })}
+                    >
+                      Encerrar tratamento
+                    </button>
+                    <button
+                      type="button"
+                      className="patients-btn patients-btn--danger"
+                      onClick={() =>
+                        setStopDialog({ mode: 'remove', treatment: t })
+                      }
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </article>
+              ))}
           </div>
         </section>
+      ) : null}
+
+      {treatments && treatments.some((t) => t.status === 'ended') ? (
+        <section className="portal-card">
+          <h2 className="treatments-section-title">Encerrados</h2>
+          <p className="treatments-section-hint">
+            Medicamentos que este paciente não toma mais. Ficam no histórico e
+            não geram lembretes, agendamentos nem notificações.
+          </p>
+          <div className="treatments-list">
+            {treatments
+              .filter((t) => t.status === 'ended')
+              .slice()
+              .sort((a, b) => {
+                const ta = a.endedAt ? new Date(a.endedAt).getTime() : 0;
+                const tb = b.endedAt ? new Date(b.endedAt).getTime() : 0;
+                return tb - ta;
+              })
+              .map((t) => (
+                <article key={t.id} className="treatments-row">
+                  <div>
+                    <h3 className="treatments-row__name">
+                      {t.medicationName ?? 'Medicamento'}
+                      <span className="treatments-tag treatments-tag--ended">
+                        encerrado
+                      </span>
+                    </h3>
+                    <p className="patients-row__meta">
+                      {t.doseQuantity} · {t.route} · término{' '}
+                      {formatEndedOn(t.endedAt)}
+                      {t.endReason ? ` · ${t.endReason}` : ''}
+                    </p>
+                  </div>
+                  <div className="treatments-row__actions">
+                    <Link
+                      to={`/tratamentos/${t.id}`}
+                      className="patients-btn patients-btn--secondary"
+                    >
+                      Detalhe
+                    </Link>
+                    <button
+                      type="button"
+                      className="patients-btn patients-btn--danger"
+                      onClick={() =>
+                        setStopDialog({ mode: 'remove', treatment: t })
+                      }
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </article>
+              ))}
+          </div>
+        </section>
+      ) : null}
+
+      {stopDialog?.mode === 'end' ? (
+        <EndTreatmentDialog
+          treatment={stopDialog.treatment}
+          onClose={() => setStopDialog(null)}
+          onEnded={() => {
+            setStopDialog(null);
+            void load();
+          }}
+        />
+      ) : null}
+      {stopDialog?.mode === 'remove' ? (
+        <RemoveTreatmentDialog
+          treatment={stopDialog.treatment}
+          onClose={() => setStopDialog(null)}
+          onRemoved={() => {
+            setStopDialog(null);
+            void load();
+          }}
+        />
       ) : null}
 
       {modalChip

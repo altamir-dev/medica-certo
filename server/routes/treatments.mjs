@@ -3,6 +3,7 @@ import {
   UUID_RE,
   buildPreview,
   createTreatment,
+  deleteTreatment,
   endTreatment,
   getTreatment,
   listDoses,
@@ -201,14 +202,39 @@ export async function treatmentsRoutes(app) {
     if (!UUID_RE.test(id)) {
       return sendError(reply, 404, 'NOT_FOUND', 'Tratamento não encontrado.');
     }
-    const result = await endTreatment(request.caregiver.id, id);
+    const body = /** @type {Record<string, unknown>} */ (request.body ?? {});
+    const result = await endTreatment(request.caregiver.id, id, body);
     if (!result.ok) {
       if (result.code === 'NOT_FOUND') {
         return sendError(reply, 404, 'NOT_FOUND', 'Tratamento não encontrado.');
       }
+      if (result.code === 'VALIDATION') {
+        return sendError(
+          reply,
+          400,
+          'VALIDATION',
+          'Dados inválidos.',
+          result.fields,
+        );
+      }
       return sendError(reply, 409, 'CONFLICT', 'Tratamento já encerrado.');
     }
     return { treatment: result.treatment };
+  });
+
+  app.delete('/api/treatments/:id', async (request, reply) => {
+    if (!request.caregiver) {
+      return sendError(reply, 401, 'UNAUTHORIZED', 'Faça login para continuar.');
+    }
+    const { id } = /** @type {{ id: string }} */ (request.params);
+    if (!UUID_RE.test(id)) {
+      return sendError(reply, 404, 'NOT_FOUND', 'Tratamento não encontrado.');
+    }
+    const result = await deleteTreatment(request.caregiver.id, id);
+    if (!result.ok) {
+      return sendError(reply, 404, 'NOT_FOUND', 'Tratamento não encontrado.');
+    }
+    return reply.code(204).send();
   });
 
   app.get('/api/treatments/:id/doses', async (request, reply) => {
