@@ -45,48 +45,32 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
   const now = new Date();
   const today = civilDate(now);
 
+  // Calendário padrão: ontem → hoje + 6 dias
   /** @type {string} */
   let fromDay = range.from && /^\d{4}-\d{2}-\d{2}$/.test(range.from)
     ? range.from
-    : today;
+    : addDaysYmd(today, -1);
   /** @type {string} */
   let toDay = range.to && /^\d{4}-\d{2}-\d{2}$/.test(range.to)
     ? range.to
-    : addDaysYmd(today, 7);
-
-  if (!range.from && treatments.length > 0) {
-    let minStart = today;
-    for (const t of treatments) {
-      const s = civilDate(new Date(t.starts_at));
-      if (s < minStart) minStart = s;
-    }
-    // Cap history display to 31 days back
-    const floor = addDaysYmd(today, -31);
-    fromDay = minStart < floor ? floor : minStart;
-  }
-
-  if (!range.to && treatments.length > 0) {
-    let maxEnd = toDay;
-    for (const t of treatments) {
-      if (t.ends_on) {
-        const e =
-          t.ends_on instanceof Date
-            ? t.ends_on.toISOString().slice(0, 10)
-            : String(t.ends_on).slice(0, 10);
-        if (e > maxEnd) maxEnd = e;
-      } else if (t.generated_until) {
-        const e = civilDate(new Date(t.generated_until));
-        if (e > maxEnd) maxEnd = e;
-      }
-    }
-    toDay = maxEnd;
-  }
+    : addDaysYmd(today, 6);
 
   if (fromDay > toDay) {
     const tmp = fromDay;
     fromDay = toDay;
     toDay = tmp;
   }
+
+  const MED_COLORS = [
+    '#3b82f6',
+    '#22c55e',
+    '#a855f7',
+    '#f97316',
+    '#06b6d4',
+    '#ec4899',
+    '#eab308',
+    '#14b8a6',
+  ];
 
   const treatmentIds = treatments.map((t) => t.id);
   /** @type {{ id: string, treatment_id: string, caregiver_id: string, scheduled_at: Date|string, status: string, administered_at: Date|string|null, alarm_at: Date|string|null }[]} */
@@ -112,64 +96,111 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
     doseRows = dosesRes.rows;
   }
 
-  /** @type {Map<string, Set<string>>} */
-  const slotsByTreatment = new Map();
+  /** @type {Map<string, string>} */
+  const colorByTreatment = new Map();
+  treatments.forEach((t, idx) => {
+    colorByTreatment.set(t.id, MED_COLORS[idx % MED_COLORS.length]);
+  });
+
+  /** @type {Map<string, { name: string, doseQuantity: string, route: string, schemeLabel: string }>} */
+  const metaByTreatment = new Map();
   for (const t of treatments) {
-    slotsByTreatment.set(t.id, new Set());
+    let schemeLabel = '';
+    if (t.schedule_mode === 'regular_interval') {
+      schemeLabel = `${t.interval_hours}/${t.interval_hours}h`;
+    } else {
+      schemeLabel = 'horários';
+    }
+    metaByTreatment.set(t.id, {
+      name: t.medication_name,
+      doseQuantity: t.dose_quantity,
+      route: t.route,
+      schemeLabel,
+    });
   }
 
-  /** @type {Record<string, {
+  /** @type {Set<string>} */
+  const slotSet = new Set();
+  /** @type {{ doseId: string, scheduledAt: Date }[]} */
+  const pendingForNext = [];
+
+  /** @type {Record<string, Array<{
    *   doseId: string,
    *   treatmentId: string,
+   *   medicationName: string,
+   *   doseQuantity: string,
+   *   route: string,
+   *   color: string,
    *   scheduledAt: string,
    *   status: string,
    *   administeredAt: string | null,
-   *   day: string,
-   *   slot: string,
+   *   note: string | null,
    *   isNext: boolean,
    *   isOverdue: boolean,
-   * }>} */
-  const cells = {};
-
-  /** @type {{ doseId: string, scheduledAt: Date, status: string }[]} */
-  const pendingForNext = [];
+   * }>>} */
+  const byDaySlot = {};
 
   for (const row of doseRows) {
     const z = toZoned(row.scheduled_at);
     const day = z.toPlainDate().toString();
     const slot = localHm(z);
-    slotsByTreatment.get(row.treatment_id)?.add(slot);
+    slotSet.add(slot);
 
-    const key = `${row.treatment_id}|${day}|${slot}`;
-    const scheduledAt = formatZonedIso(z);
-    const administeredAt = row.administered_at
-      ? formatZonedIso(toZoned(row.administered_at))
-      : null;
+    const key = `${day}|${slot}`;
+    const meta = metaByTreatment.get(row.treatment_id);
     const isOverdue =
-      row.status === 'pending' && new Date(row.scheduled_at).getTime() < now.getTime();
+      row.status === 'pending' &&
+      new Date(row.scheduled_at).getTime() < now.getTime();
 
-    cells[key] = {
+    if (!byDaySlot[key]) byDaySlot[key] = [];
+    byDaySlot[key].push({
       doseId: row.id,
       treatmentId: row.treatment_id,
-      scheduledAt,
+      medicationName: meta?.name ?? 'Medicamento',
+      doseQuantity: meta?.doseQuantity ?? '',
+      route: meta?.route ?? '',
+      color: colorByTreatment.get(row.treatment_id) ?? MED_COLORS[0],
+      scheduledAt: formatZonedIso(z),
       status: row.status,
-      administeredAt,
-      day,
-      slot,
+      administeredAt: row.administered_at
+        ? formatZonedIso(toZoned(row.administered_at))
+        : null,
+      note: null,
       isNext: false,
       isOverdue,
-    };
+    });
 
     if (row.status === 'pending') {
       pendingForNext.push({
         doseId: row.id,
         scheduledAt: new Date(row.scheduled_at),
-        status: row.status,
       });
     }
   }
 
-  // Next: earliest overdue pending, else earliest future pending
+  // Latest note per dose
+  const doseIds = doseRows.map((r) => r.id);
+  /** @type {Map<string, string>} */
+  const noteByDose = new Map();
+  if (doseIds.length > 0) {
+    const notesRes = await pool.query(
+      `SELECT DISTINCT ON (scheduled_dose_id) scheduled_dose_id, body
+       FROM notes
+       WHERE caregiver_id = $1
+         AND scheduled_dose_id = ANY($2::uuid[])
+       ORDER BY scheduled_dose_id, created_at DESC`,
+      [caregiverId, doseIds],
+    );
+    for (const n of notesRes.rows) {
+      noteByDose.set(n.scheduled_dose_id, n.body);
+    }
+    for (const chips of Object.values(byDaySlot)) {
+      for (const chip of chips) {
+        chip.note = noteByDose.get(chip.doseId) ?? null;
+      }
+    }
+  }
+
   let nextDoseId = /** @type {string | null} */ (null);
   if (pendingForNext.length > 0) {
     const overdue = pendingForNext
@@ -182,36 +213,46 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
   }
 
   if (nextDoseId) {
-    for (const cell of Object.values(cells)) {
-      if (cell.doseId === nextDoseId) cell.isNext = true;
+    for (const chips of Object.values(byDaySlot)) {
+      for (const chip of chips) {
+        if (chip.doseId === nextDoseId) chip.isNext = true;
+      }
     }
   }
 
-  /** @type {string[]} */
+  /** @type {{ ymd: string, label: string, isToday: boolean, isYesterday: boolean }[]} */
   const days = [];
+  const yesterday = addDaysYmd(today, -1);
   for (let d = fromDay; d <= toDay; d = addDaysYmd(d, 1)) {
-    days.push(d);
+    const isToday = d === today;
+    const isYesterday = d === yesterday;
+    let label;
+    if (isToday) label = 'Hoje';
+    else if (isYesterday) label = 'Ontem';
+    else {
+      const [y, m, dayNum] = d.split('-').map(Number);
+      label = new Intl.DateTimeFormat('pt-BR', {
+        weekday: 'short',
+        day: '2-digit',
+        month: '2-digit',
+      }).format(new Date(y, m - 1, dayNum));
+    }
+    days.push({ ymd: d, label, isToday, isYesterday });
   }
 
-  const columns = treatments
-    .map((t) => {
-      const slots = [...(slotsByTreatment.get(t.id) ?? [])].sort();
-      let schemeLabel = '';
-      if (t.schedule_mode === 'regular_interval') {
-        schemeLabel = `${t.interval_hours}/${t.interval_hours}h`;
-      } else {
-        schemeLabel = 'horários';
-      }
-      return {
-        treatmentId: t.id,
-        medicationName: t.medication_name,
-        doseQuantity: t.dose_quantity,
-        route: t.route,
-        schemeLabel,
-        slots,
-      };
-    })
-    .filter((c) => c.slots.length > 0);
+  const slots = [...slotSet].sort();
+
+  const medications = treatments.map((t) => {
+    const meta = metaByTreatment.get(t.id);
+    return {
+      treatmentId: t.id,
+      name: t.medication_name,
+      doseQuantity: t.dose_quantity,
+      route: t.route,
+      schemeLabel: meta?.schemeLabel ?? '',
+      color: colorByTreatment.get(t.id) ?? MED_COLORS[0],
+    };
+  });
 
   return {
     ok: true,
@@ -219,9 +260,11 @@ export async function getPatientSheet(caregiverId, patientId, range = {}) {
       patientId,
       from: fromDay,
       to: toDay,
-      columns,
+      today,
+      medications,
+      slots,
       days,
-      cells,
+      byDaySlot,
       nextDoseId,
     },
   };

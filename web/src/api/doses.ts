@@ -2,23 +2,33 @@ import { apiFetch } from './client';
 import type { Patient } from './patients';
 import type { ScheduledDose } from './treatments';
 
-export type SheetColumn = {
+export type SheetMedication = {
+  treatmentId: string;
+  name: string;
+  doseQuantity: string;
+  route: string;
+  schemeLabel: string;
+  color: string;
+};
+
+export type SheetDay = {
+  ymd: string;
+  label: string;
+  isToday: boolean;
+  isYesterday: boolean;
+};
+
+export type SheetChip = {
+  doseId: string;
   treatmentId: string;
   medicationName: string;
   doseQuantity: string;
   route: string;
-  schemeLabel: string;
-  slots: string[];
-};
-
-export type SheetCell = {
-  doseId: string;
-  treatmentId: string;
+  color: string;
   scheduledAt: string;
   status: string;
   administeredAt: string | null;
-  day: string;
-  slot: string;
+  note: string | null;
   isNext: boolean;
   isOverdue: boolean;
 };
@@ -27,9 +37,11 @@ export type PatientSheet = {
   patientId: string;
   from: string;
   to: string;
-  columns: SheetColumn[];
-  days: string[];
-  cells: Record<string, SheetCell>;
+  today: string;
+  medications: SheetMedication[];
+  slots: string[];
+  days: SheetDay[];
+  byDaySlot: Record<string, SheetChip[]>;
   nextDoseId: string | null;
 };
 
