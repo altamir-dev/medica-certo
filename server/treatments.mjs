@@ -1,4 +1,5 @@
 import { getPool } from './db.mjs';
+import { resolvePatientAccess } from './access.mjs';
 import { asString, isValidTime } from './patients.mjs';
 import {
   alarmAtFor,
@@ -156,7 +157,10 @@ const SELECT_TREATMENT = `
  * @param {string} caregiverId
  * @param {string} patientId
  */
-export async function listTreatmentsForPatient(caregiverId, patientId) {
+export async function listTreatmentsForPatient(sessionCaregiverId, patientId) {
+  const access = await resolvePatientAccess(sessionCaregiverId, patientId);
+  if (!access) return [];
+  const ownerId = access.ownerCaregiverId;
   const result = await getPool().query(
     `SELECT ${SELECT_TREATMENT}
      FROM treatments t
@@ -164,25 +168,29 @@ export async function listTreatmentsForPatient(caregiverId, patientId) {
      JOIN medications m ON m.id = t.medication_id
      WHERE t.caregiver_id = $1 AND t.patient_id = $2
      ORDER BY t.status ASC, t.starts_at DESC`,
-    [caregiverId, patientId],
+    [ownerId, patientId],
   );
   return result.rows.map(mapTreatment);
 }
 
 /**
- * @param {string} caregiverId
+ * @param {string} sessionCaregiverId
  * @param {string} treatmentId
  */
-export async function getTreatment(caregiverId, treatmentId) {
+export async function getTreatment(sessionCaregiverId, treatmentId) {
   const result = await getPool().query(
     `SELECT ${SELECT_TREATMENT}
      FROM treatments t
      JOIN patients p ON p.id = t.patient_id
      JOIN medications m ON m.id = t.medication_id
-     WHERE t.caregiver_id = $1 AND t.id = $2`,
-    [caregiverId, treatmentId],
+     WHERE t.id = $1`,
+    [treatmentId],
   );
-  return result.rows[0] ? mapTreatment(result.rows[0]) : null;
+  const row = result.rows[0];
+  if (!row) return null;
+  const access = await resolvePatientAccess(sessionCaregiverId, row.patient_id);
+  if (!access || access.ownerCaregiverId !== row.caregiver_id) return null;
+  return mapTreatment(row);
 }
 
 /**
@@ -870,16 +878,18 @@ export async function deleteTreatment(caregiverId, treatmentId) {
  * @param {string} treatmentId
  * @param {{ from?: string, to?: string, includeCancelled?: boolean }} query
  */
-export async function listDoses(caregiverId, treatmentId, query = {}) {
-  const treatment = await getTreatment(caregiverId, treatmentId);
+export async function listDoses(sessionCaregiverId, treatmentId, query = {}) {
+  const treatment = await getTreatment(sessionCaregiverId, treatmentId);
   if (!treatment) return { ok: false, code: 'NOT_FOUND' };
+
+  const ownerId = treatment.caregiverId;
 
   // Extend continuous window if needed
   if (treatment.status === 'active' && !treatment.endsOn) {
-    await maybeExtendTreatment(caregiverId, treatmentId);
+    await maybeExtendTreatment(ownerId, treatmentId);
   }
 
-  const params = [caregiverId, treatmentId];
+  const params = [ownerId, treatmentId];
   let i = 3;
   /** @type {string[]} */
   const clauses = ['caregiver_id = $1', 'treatment_id = $2'];

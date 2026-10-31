@@ -304,6 +304,8 @@ export function PatientDetailPage() {
     modalMode === 'register' &&
     new Date(modalChip.scheduledAt).getTime() > Date.now();
 
+  const canManage = patient?.access !== 'grantee';
+
   return (
     <div className="patients-page">
       <div className="patients-toolbar">
@@ -323,7 +325,7 @@ export function PatientDetailPage() {
           ) : null}
         </div>
         <div className="patients-row__actions">
-          {patient ? (
+          {patient && canManage ? (
             <Link
               to={`/pacientes/${patient.id}/editar`}
               className="patients-btn patients-btn--secondary"
@@ -332,6 +334,8 @@ export function PatientDetailPage() {
               Editar
             </Link>
           ) : null}
+          {canManage ? (
+            <>
           <Link
             to={`/pacientes/${id}/tratamentos/novo`}
             className="patients-btn patients-btn--primary"
@@ -346,6 +350,8 @@ export function PatientDetailPage() {
             >
               Fotografar caixa ou receita
             </Link>
+          ) : null}
+            </>
           ) : null}
         </div>
       </div>
@@ -414,9 +420,12 @@ export function PatientDetailPage() {
         ) : sheet.medications.length === 0 ? (
           <div className="patients-empty">
             <p className="portal-card__body">
-              Nenhum tratamento ativo. Adicione um medicamento para montar o
-              calendário.
+              Nenhum tratamento ativo.
+              {canManage
+                ? ' Adicione um medicamento para montar o calendário.'
+                : ''}
             </p>
+            {canManage ? (
             <Link
               to={`/pacientes/${id}/tratamentos/novo`}
               className="patients-btn patients-btn--primary"
@@ -424,6 +433,7 @@ export function PatientDetailPage() {
               <Plus weight="bold" size={18} aria-hidden="true" />
               Adicionar medicamento
             </Link>
+            ) : null}
           </div>
         ) : (
           <>
@@ -605,6 +615,8 @@ export function PatientDetailPage() {
                     >
                       Detalhe
                     </Link>
+                    {canManage ? (
+                      <>
                     <button
                       type="button"
                       className="patients-btn patients-btn--primary"
@@ -621,6 +633,8 @@ export function PatientDetailPage() {
                     >
                       Remover
                     </button>
+                      </>
+                    ) : null}
                   </div>
                 </article>
               ))}

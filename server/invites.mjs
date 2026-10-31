@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
 import { hashPassword } from './auth.mjs';
+import {
+  filterOwnedPatientIds,
+  insertPatientAccessRows,
+} from './access.mjs';
 import { getPool } from './db.mjs';
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const DEFAULT_INVITE_DAYS = 7;
 export const MIN_INVITE_DAYS = 1;
@@ -128,6 +135,32 @@ export function registrationDecision({ caregiverCount, inviteToken }) {
 }
 
 /**
+ * @param {import('pg').PoolClient} client
+ * @param {string} inviteId
+ */
+async function loadInvitePatientIds(client, inviteId) {
+  const { rows } = await client.query(
+    `SELECT patient_id FROM invite_patients WHERE invite_id = $1`,
+    [inviteId],
+  );
+  return rows.map((r) => r.patient_id);
+}
+
+/**
+ * @param {import('pg').PoolClient} client
+ * @param {{ inviteId: string, ownerId: string, granteeId: string }} input
+ */
+async function grantInvitePatients(client, { inviteId, ownerId, granteeId }) {
+  const patientIds = await loadInvitePatientIds(client, inviteId);
+  if (!patientIds.length) return;
+  await insertPatientAccessRows(client, {
+    granteeId,
+    ownerId,
+    patientIds,
+  });
+}
+
+/**
  * @param {unknown} body
  */
 export function parseInviteCreateBody(body) {
@@ -139,11 +172,30 @@ export function parseInviteCreateBody(body) {
   const fields = {};
 
   let email = null;
-  if (source.email != null && String(source.email).trim() !== '') {
+  if (source.email == null || String(source.email).trim() === '') {
+    fields.email = 'Informe o e-mail do convidado.';
+  } else {
     email = String(source.email).trim().toLowerCase();
     if (email.length > 200 || !EMAIL_RE.test(email)) {
       fields.email = 'Informe um e-mail válido.';
     }
+  }
+
+  const rawPatients = source.patientIds;
+  /** @type {string[]} */
+  let patientIds = [];
+  if (!Array.isArray(rawPatients) || rawPatients.length === 0) {
+    fields.patientIds = 'Selecione ao menos um paciente.';
+  } else {
+    for (const item of rawPatients) {
+      const id = String(item).trim();
+      if (!UUID_RE.test(id)) {
+        fields.patientIds = 'Paciente inválido.';
+        break;
+      }
+      patientIds.push(id);
+    }
+    patientIds = [...new Set(patientIds)];
   }
 
   let expiresInDays = DEFAULT_INVITE_DAYS;
@@ -163,7 +215,7 @@ export function parseInviteCreateBody(body) {
   }
 
   if (Object.keys(fields).length > 0) return { ok: false, fields };
-  return { ok: true, value: { email, expiresInDays } };
+  return { ok: true, value: { email, expiresInDays, patientIds } };
 }
 
 /**
@@ -204,23 +256,57 @@ export async function insertCaregiver(db, { email, passwordHash, name, isAdmin }
 }
 
 /**
- * @param {{ createdBy: string, email: string | null, expiresInDays: number, now?: Date }} input
+ * @param {{ createdBy: string, email: string, patientIds: string[], expiresInDays: number, now?: Date }} input
  */
 export async function createInvite({
   createdBy,
   email,
+  patientIds,
   expiresInDays,
   now = new Date(),
 }) {
+  const owned = await filterOwnedPatientIds(createdBy, patientIds);
+  if (owned.length !== patientIds.length) {
+    return {
+      ok: false,
+      code: 'NOT_FOUND',
+      message: 'Paciente não encontrado.',
+    };
+  }
+
   const { token, tokenHash } = generateInviteToken();
   const expiresAt = inviteExpiresAt(now, expiresInDays);
-  const { rows } = await getPool().query(
-    `INSERT INTO caregiver_invites (token_hash, email, created_by, expires_at)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, email::text AS email, expires_at, created_at, used_at, revoked_at`,
-    [tokenHash, email || null, createdBy, expiresAt.toISOString()],
-  );
-  return { invite: toInvite(rows[0], now), token };
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO caregiver_invites (token_hash, email, created_by, expires_at)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, email::text AS email, expires_at, created_at, used_at, revoked_at`,
+      [tokenHash, email, createdBy, expiresAt.toISOString()],
+    );
+    const inviteRow = rows[0];
+    for (const patientId of owned) {
+      await client.query(
+        `INSERT INTO invite_patients (invite_id, patient_id) VALUES ($1, $2)`,
+        [inviteRow.id, patientId],
+      );
+    }
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      invite: {
+        ...toInvite(inviteRow, now),
+        patientIds: owned,
+      },
+      token,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -336,7 +422,7 @@ export async function registerWithInvite({ email, password, name, token }) {
     }
 
     const bound = row.email ? String(row.email).trim().toLowerCase() : '';
-    if (bound && bound !== email) {
+    if (!bound || bound !== email) {
       await client.query('ROLLBACK');
       return {
         ok: false,
@@ -378,7 +464,7 @@ export async function registerWithInvite({ email, password, name, token }) {
          AND used_at IS NULL
          AND revoked_at IS NULL
          AND expires_at > now()
-       RETURNING id`,
+       RETURNING id, created_by`,
       [row.id, caregiver.id],
     );
     if (updated.rowCount !== 1) {
@@ -390,8 +476,93 @@ export async function registerWithInvite({ email, password, name, token }) {
       };
     }
 
+    await grantInvitePatients(client, {
+      inviteId: row.id,
+      ownerId: updated.rows[0].created_by,
+      granteeId: caregiver.id,
+    });
+
     await client.query('COMMIT');
     return { ok: true, caregiver };
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* transaction already finished */
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Accept invite for an already registered caregiver (same e-mail as invite).
+ * @param {{ caregiverId: string, email: string, token: string }} input
+ */
+export async function acceptInviteForCaregiver({ caregiverId, email, token }) {
+  const normalized = normalizeInviteToken(token);
+  const presentedHash = hashInviteToken(normalized);
+  const client = await getPool().connect();
+
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, token_hash, email::text AS email, created_by, expires_at, used_at, revoked_at
+       FROM caregiver_invites
+       WHERE token_hash = $1
+       FOR UPDATE`,
+      [presentedHash],
+    );
+    const row = rows[0] ?? null;
+    const decision = evaluateInvite(row, new Date(), presentedHash);
+    if (!decision.ok || !row) {
+      await client.query('ROLLBACK');
+      return {
+        ok: false,
+        code: 'INVITE_INVALID',
+        message: INVITE_INVALID_MESSAGE,
+      };
+    }
+
+    const bound = row.email ? String(row.email).trim().toLowerCase() : '';
+    if (!bound || bound !== email) {
+      await client.query('ROLLBACK');
+      return {
+        ok: false,
+        code: 'VALIDATION',
+        message: 'Dados inválidos.',
+        fields: { email: 'Este convite é para outro e-mail.' },
+      };
+    }
+
+    const updated = await client.query(
+      `UPDATE caregiver_invites
+       SET used_at = now(), used_by = $2
+       WHERE id = $1
+         AND used_at IS NULL
+         AND revoked_at IS NULL
+         AND expires_at > now()
+       RETURNING id, created_by`,
+      [row.id, caregiverId],
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return {
+        ok: false,
+        code: 'INVITE_INVALID',
+        message: INVITE_INVALID_MESSAGE,
+      };
+    }
+
+    await grantInvitePatients(client, {
+      inviteId: row.id,
+      ownerId: updated.rows[0].created_by,
+      granteeId: caregiverId,
+    });
+
+    await client.query('COMMIT');
+    return { ok: true };
   } catch (err) {
     try {
       await client.query('ROLLBACK');

@@ -1,4 +1,8 @@
 import { getPool } from './db.mjs';
+import {
+  listAccessiblePatients,
+  resolvePatientAccess,
+} from './access.mjs';
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -92,14 +96,7 @@ function formatTime(value) {
  * @param {string} caregiverId
  */
 export async function listPatients(caregiverId) {
-  const result = await getPool().query(
-    `SELECT id, name, birth_date, sleep_start, sleep_end, created_at, updated_at
-     FROM patients
-     WHERE caregiver_id = $1
-     ORDER BY lower(name) ASC, created_at ASC`,
-    [caregiverId],
-  );
-  return result.rows.map(mapPatient);
+  return listAccessiblePatients(caregiverId);
 }
 
 /**
@@ -107,13 +104,8 @@ export async function listPatients(caregiverId) {
  * @param {string} patientId
  */
 export async function getPatient(caregiverId, patientId) {
-  const result = await getPool().query(
-    `SELECT id, name, birth_date, sleep_start, sleep_end, created_at, updated_at
-     FROM patients
-     WHERE id = $1 AND caregiver_id = $2`,
-    [patientId, caregiverId],
-  );
-  return result.rows[0] ? mapPatient(result.rows[0]) : null;
+  const access = await resolvePatientAccess(caregiverId, patientId);
+  return access?.patient ?? null;
 }
 
 /**
