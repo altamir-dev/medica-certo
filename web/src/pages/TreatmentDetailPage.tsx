@@ -7,6 +7,10 @@ import {
   getTreatment,
   type Treatment,
 } from '../api/treatments';
+import {
+  EndTreatmentDialog,
+  RemoveTreatmentDialog,
+} from './TreatmentStopDialogs';
 import './PatientsPage.css';
 import './Treatments.css';
 
@@ -14,6 +18,14 @@ function formatWhen(iso: string) {
   return new Intl.DateTimeFormat('pt-BR', {
     dateStyle: 'short',
     timeStyle: 'short',
+    timeZone: 'America/Sao_Paulo',
+  }).format(new Date(iso));
+}
+
+function formatEndedOn(iso: string | null) {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
     timeZone: 'America/Sao_Paulo',
   }).format(new Date(iso));
 }
@@ -31,6 +43,7 @@ export function TreatmentDetailPage() {
   const [treatment, setTreatment] = useState<Treatment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [stopMode, setStopMode] = useState<'end' | 'remove' | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -50,33 +63,11 @@ export function TreatmentDetailPage() {
     void load();
   }, [load]);
 
-  async function onEnd() {
-    if (!treatment) return;
-    const ok = window.confirm(
-      'Encerrar este tratamento? Doses futuras pendentes serão canceladas.',
-    );
-    if (!ok) return;
-    setEnding(true);
-    setError(null);
-    try {
-      const updated = await endTreatment(treatment.id);
-      setTreatment(updated);
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : 'Não foi possível encerrar.',
-      );
-    } finally {
-      setEnding(false);
-    }
-  }
-
   async function onRecreate() {
     if (!treatment) return;
     if (treatment.status === 'active') {
       const ok = window.confirm(
-        'Encerrar o tratamento atual e abrir um novo com o mesmo medicamento?',
+        'Encerrar o tratamento atual (término hoje, sem motivo) e abrir um novo com o mesmo medicamento? O histórico deste tratamento permanece.',
       );
       if (!ok) return;
       setEnding(true);
@@ -158,9 +149,19 @@ export function TreatmentDetailPage() {
             <strong>Início:</strong> {formatWhen(treatment.startsAt)}
           </p>
           <p>
-            <strong>Fim:</strong>{' '}
+            <strong>Fim previsto:</strong>{' '}
             {treatment.endsOn ?? 'contínuo'}
           </p>
+          {treatment.status === 'ended' ? (
+            <>
+              <p>
+                <strong>Término:</strong> {formatEndedOn(treatment.endedAt)}
+              </p>
+              <p>
+                <strong>Motivo:</strong> {treatment.endReason ?? '—'}
+              </p>
+            </>
+          ) : null}
           <p>
             <strong>Alarmes:</strong>{' '}
             {treatment.alarmsEnabled ? 'ativos' : 'desligados'}
@@ -170,13 +171,11 @@ export function TreatmentDetailPage() {
             {treatment.status === 'active' ? (
               <button
                 type="button"
-                className="patients-btn patients-btn--danger"
+                className="patients-btn patients-btn--primary"
                 disabled={ending}
-                onClick={() => {
-                  void onEnd();
-                }}
+                onClick={() => setStopMode('end')}
               >
-                {ending ? 'Encerrando…' : 'Encerrar tratamento'}
+                Encerrar tratamento
               </button>
             ) : null}
             <button
@@ -189,8 +188,36 @@ export function TreatmentDetailPage() {
             >
               Encerrar e recriar
             </button>
+            <button
+              type="button"
+              className="patients-btn patients-btn--danger"
+              disabled={ending}
+              onClick={() => setStopMode('remove')}
+            >
+              Remover
+            </button>
           </div>
         </section>
+      ) : null}
+
+      {treatment && stopMode === 'end' ? (
+        <EndTreatmentDialog
+          treatment={treatment}
+          onClose={() => setStopMode(null)}
+          onEnded={(updated) => {
+            setTreatment(updated);
+            setStopMode(null);
+          }}
+        />
+      ) : null}
+      {treatment && stopMode === 'remove' ? (
+        <RemoveTreatmentDialog
+          treatment={treatment}
+          onClose={() => setStopMode(null)}
+          onRemoved={() => {
+            navigate(`/pacientes/${treatment.patientId}`);
+          }}
+        />
       ) : null}
     </div>
   );

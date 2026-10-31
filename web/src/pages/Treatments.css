@@ -202,6 +202,35 @@
   gap: var(--space-2);
 }
 
+.treatments-section-hint {
+  margin: calc(var(--space-2) * -1) 0 var(--space-3);
+  font-size: var(--font-xxs);
+  color: var(--muted);
+}
+
+.treatments-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.treatments-stop-note {
+  margin: 0;
+  font-size: var(--font-xxs);
+  color: var(--ink);
+}
+
+.sheet-modal--stop {
+  width: min(480px, 100%);
+}
+
+.sheet-modal--stop .sheet-modal__check input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
 .treatments-med-pick {
   display: flex;
   flex-direction: column;
@@ -300,7 +329,8 @@
     flex-direction: column-reverse;
   }
 
-  .treatments-actions .patients-btn {
+  .treatments-actions .patients-btn,
+  .treatments-row__actions .patients-btn {
     width: 100%;
     min-height: 44px;
   }

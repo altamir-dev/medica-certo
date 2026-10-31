@@ -43,6 +43,20 @@ jobs:
     if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medica
+          POSTGRES_PASSWORD: medica
+          POSTGRES_DB: medica_certo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medica -d medica_certo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,11 +67,13 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Typecheck and unit tests
+        env:
+          TEST_DATABASE_URL: postgres://medica:medica@127.0.0.1:5432/medica_certo
         run: |
           npm ci
           # Não há script de lint. Typecheck é o da web; o server é JS.
-          # Testes são unitários (sem Postgres). O server precisa de
-          # --harmony-temporal, já no script npm test.
+          # O server precisa de --harmony-temporal, já no script npm test.
+          # treatments-stop.test.mjs usa o Postgres do service acima.
           npm run typecheck
           npm run test -w server
           npm run test -w web

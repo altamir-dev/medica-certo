@@ -12,6 +12,11 @@ import {
   suggestFirstDose,
   toZoned,
 } from './domain/schedule.mjs';
+import {
+  civilDate,
+  endOfDaySaoPaulo,
+  zonedToDate,
+} from './domain/timezone.mjs';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE =
@@ -51,6 +56,7 @@ function formatTimePg(value) {
  *   starts_at: Date | string,
  *   ends_on: string | Date | null,
  *   ended_at: Date | string | null,
+ *   end_reason?: string | null,
  *   status: string,
  *   dose_quantity: string,
  *   route: string,
@@ -89,6 +95,7 @@ export function mapTreatment(row) {
     endedAt: row.ended_at
       ? formatZonedIso(toZoned(row.ended_at))
       : null,
+    endReason: row.end_reason ?? null,
     status: row.status,
     doseQuantity: row.dose_quantity,
     route: row.route,
@@ -133,11 +140,12 @@ export function mapDose(row) {
 
 const SELECT_TREATMENT = `
   t.id, t.caregiver_id, t.patient_id, t.medication_id,
-  t.starts_at, t.ends_on, t.ended_at, t.status,
+  t.starts_at, t.ends_on, t.ended_at, t.end_reason, t.status,
   t.dose_quantity, t.route, t.schedule_mode, t.interval_hours,
   t.times_of_day, t.alarms_enabled, t.generated_until,
   t.created_at, t.updated_at,
   p.name AS patient_name,
+  p.caregiver_id AS patient_caregiver_id,
   m.name AS medication_name
 `;
 
@@ -621,21 +629,143 @@ export async function patchTreatment(caregiverId, treatmentId, body) {
   return { ok: true, treatment };
 }
 
+const END_REASON_MAX = 500;
+
 /**
+ * @param {string} ymd
+ */
+function isCivilDate(ymd) {
+  try {
+    return Temporal.PlainDate.from(ymd).toString() === ymd;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {string} endedOn YYYY-MM-DD
+ * @param {Date} now
+ */
+function endedAtInstant(endedOn, now) {
+  if (endedOn < civilDate(now)) {
+    return zonedToDate(endOfDaySaoPaulo(endedOn));
+  }
+  return now;
+}
+
+/**
+ * @param {Record<string, unknown>} body
+ * @param {{ startsAt: Date | string, now?: Date }} ctx
+ */
+export function parseEndTreatmentBody(body, ctx) {
+  /** @type {Record<string, string>} */
+  const fields = {};
+  const now = ctx.now ?? new Date();
+  const today = civilDate(now);
+  const startCivil = civilDate(
+    ctx.startsAt instanceof Date ? ctx.startsAt : new Date(ctx.startsAt),
+  );
+
+  /** @type {string} */
+  let endedOn;
+  if (body.endedOn == null || body.endedOn === '') {
+    endedOn = today;
+  } else {
+    const raw = asString(body.endedOn).trim();
+    if (!DATE_RE.test(raw) || !isCivilDate(raw)) {
+      fields.endedOn = 'Data de término inválida.';
+      endedOn = '';
+    } else {
+      endedOn = raw;
+    }
+  }
+
+  if (endedOn && endedOn > today) {
+    fields.endedOn = 'A data de término não pode ser no futuro.';
+  } else if (
+    endedOn &&
+    endedOn < startCivil &&
+    !(endedOn === today && startCivil > today)
+  ) {
+    fields.endedOn =
+      'A data de término é anterior ao início do tratamento.';
+  }
+
+  /** @type {string | null} */
+  let endReason = null;
+  if (body.endReason != null && body.endReason !== '') {
+    if (typeof body.endReason !== 'string') {
+      fields.endReason = 'Motivo inválido.';
+    } else {
+      const raw = body.endReason.trim();
+      if (raw.length > END_REASON_MAX) {
+        fields.endReason = 'Motivo muito longo (máximo 500 caracteres).';
+      } else if (raw.length > 0) {
+        endReason = raw;
+      }
+    }
+  }
+
+  if (Object.keys(fields).length > 0) {
+    return { ok: false, fields };
+  }
+
+  return {
+    ok: true,
+    value: {
+      endedOn,
+      endReason,
+      endedAt: endedAtInstant(endedOn, now),
+    },
+  };
+}
+
+/**
+ * Mark the patient↔medication link ended. History stays.
+ * Future pending doses are cancelled; remaining pending doses stop alarming.
  * @param {string} caregiverId
  * @param {string} treatmentId
+ * @param {Record<string, unknown>} [body]
  */
-export async function endTreatment(caregiverId, treatmentId) {
+export async function endTreatment(caregiverId, treatmentId, body = {}) {
+  const existing = await getTreatmentRow(caregiverId, treatmentId);
+  if (!existing || existing.patient_caregiver_id !== caregiverId) {
+    return { ok: false, code: 'NOT_FOUND' };
+  }
+  if (existing.status !== 'active') {
+    return { ok: false, code: 'ENDED' };
+  }
+
+  const parsed = parseEndTreatmentBody(body, { startsAt: existing.starts_at });
+  if (!parsed.ok) {
+    return { ok: false, code: 'VALIDATION', fields: parsed.fields };
+  }
+
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const updated = await client.query(
       `UPDATE treatments
-       SET status = 'ended', ended_at = now(), updated_at = now()
-       WHERE id = $1 AND caregiver_id = $2 AND status = 'active'
+       SET status = 'ended',
+           ended_at = $3,
+           end_reason = $4,
+           updated_at = now()
+       WHERE id = $1
+         AND caregiver_id = $2
+         AND status = 'active'
+         AND EXISTS (
+           SELECT 1 FROM patients p
+           WHERE p.id = treatments.patient_id
+             AND p.caregiver_id = $2
+         )
        RETURNING id`,
-      [treatmentId, caregiverId],
+      [
+        treatmentId,
+        caregiverId,
+        parsed.value.endedAt,
+        parsed.value.endReason,
+      ],
     );
     if ((updated.rowCount ?? 0) === 0) {
       await client.query('ROLLBACK');
@@ -647,10 +777,18 @@ export async function endTreatment(caregiverId, treatmentId) {
 
     await client.query(
       `UPDATE scheduled_doses
-       SET status = 'cancelled', updated_at = now()
+       SET status = 'cancelled', alarm_at = NULL, updated_at = now()
        WHERE treatment_id = $1
          AND status = 'pending'
-         AND scheduled_at > now()`,
+         AND scheduled_at > $2`,
+      [treatmentId, parsed.value.endedAt],
+    );
+    await client.query(
+      `UPDATE scheduled_doses
+       SET alarm_at = NULL, updated_at = now()
+       WHERE treatment_id = $1
+         AND status = 'pending'
+         AND alarm_sent_at IS NULL`,
       [treatmentId],
     );
     await client.query('COMMIT');
@@ -663,6 +801,65 @@ export async function endTreatment(caregiverId, treatmentId) {
 
   const treatment = await getTreatment(caregiverId, treatmentId);
   return { ok: true, treatment };
+}
+
+/**
+ * Hard-delete a treatment and its doses/notes. For a mistaken registration.
+ * Order is explicit so the link disappears even if a future migration
+ * drops ON DELETE CASCADE.
+ * @param {string} caregiverId
+ * @param {string} treatmentId
+ */
+export async function deleteTreatment(caregiverId, treatmentId) {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query(
+      `SELECT t.id
+       FROM treatments t
+       JOIN patients p ON p.id = t.patient_id
+       WHERE t.id = $1
+         AND t.caregiver_id = $2
+         AND p.caregiver_id = $2
+       FOR UPDATE OF t`,
+      [treatmentId, caregiverId],
+    );
+    if ((locked.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return { ok: false, code: 'NOT_FOUND' };
+    }
+
+    await client.query(
+      `DELETE FROM notes
+       WHERE treatment_id = $1
+          OR scheduled_dose_id IN (
+            SELECT id FROM scheduled_doses WHERE treatment_id = $1
+          )`,
+      [treatmentId],
+    );
+    await client.query(
+      `DELETE FROM scheduled_doses WHERE treatment_id = $1`,
+      [treatmentId],
+    );
+    const deleted = await client.query(
+      `DELETE FROM treatments
+       WHERE id = $1 AND caregiver_id = $2
+       RETURNING id`,
+      [treatmentId, caregiverId],
+    );
+    if ((deleted.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return { ok: false, code: 'NOT_FOUND' };
+    }
+    await client.query('COMMIT');
+    return { ok: true };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**

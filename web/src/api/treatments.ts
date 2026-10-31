@@ -10,6 +10,7 @@ export type Treatment = {
   startsAt: string;
   endsOn: string | null;
   endedAt: string | null;
+  endReason: string | null;
   status: 'active' | 'ended';
   doseQuantity: string;
   route: string;
@@ -117,12 +118,19 @@ export async function suggestFirstDose(input: {
   });
 }
 
-export async function endTreatment(id: string): Promise<Treatment> {
+export async function endTreatment(
+  id: string,
+  input: { endedOn?: string; endReason?: string | null } = {},
+): Promise<Treatment> {
   const data = await apiFetch<{ treatment: Treatment }>(
     `/api/treatments/${id}/end`,
-    { method: 'POST', body: '{}' },
+    { method: 'POST', body: JSON.stringify(input) },
   );
   return data.treatment;
+}
+
+export async function deleteTreatment(id: string): Promise<void> {
+  await apiFetch<void>(`/api/treatments/${id}`, { method: 'DELETE' });
 }
 
 export async function listTreatmentDoses(
