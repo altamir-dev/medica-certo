@@ -74,6 +74,6 @@
 @media (max-width: 39em) {
   .alarm-banner {
     padding: var(--space-2);
-    padding-bottom: calc(var(--space-2) + 64px);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
   }
 }

@@ -114,29 +114,46 @@ export function TreatmentGradePage() {
         {doses.length === 0 && !error ? (
           <p className="portal-card__body">Nenhuma dose na grade.</p>
         ) : (
-          <table className="treatments-grade-table">
-            <thead>
-              <tr>
-                <th>Horário previsto</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            <table className="treatments-grade-table">
+              <thead>
+                <tr>
+                  <th>Horário previsto</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {doses.map((dose) => {
+                  const tag = doseTag(dose, now);
+                  return (
+                    <tr key={dose.id}>
+                      <td>{formatWhen(dose.scheduledAt)}</td>
+                      <td>
+                        <span className={`treatments-tag ${tag.className}`}>
+                          {tag.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <ul className="treatments-grade-cards">
               {doses.map((dose) => {
                 const tag = doseTag(dose, now);
                 return (
-                  <tr key={dose.id}>
-                    <td>{formatWhen(dose.scheduledAt)}</td>
-                    <td>
-                      <span className={`treatments-tag ${tag.className}`}>
-                        {tag.label}
-                      </span>
-                    </td>
-                  </tr>
+                  <li key={dose.id} className="treatments-grade-card">
+                    <span className="treatments-grade-card__when">
+                      {formatWhen(dose.scheduledAt)}
+                    </span>
+                    <span className={`treatments-tag ${tag.className}`}>
+                      {tag.label}
+                    </span>
+                  </li>
                 );
               })}
-            </tbody>
-          </table>
+            </ul>
+          </>
         )}
       </section>
     </div>

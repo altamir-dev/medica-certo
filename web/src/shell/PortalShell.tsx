@@ -32,13 +32,24 @@ function HeaderClock() {
 const NAV_ITEMS: Array<{
   to: string;
   label: string;
+  shortLabel: string;
   icon: typeof House;
   end?: boolean;
 }> = [
-  { to: '/', label: 'Dashboard', icon: House, end: true },
-  { to: '/pacientes', label: 'Pacientes', icon: Users },
-  { to: '/medicamentos', label: 'Medicamentos', icon: Pill },
-  { to: '/configuracoes', label: 'Configurações', icon: GearSix },
+  { to: '/', label: 'Dashboard', shortLabel: 'Início', icon: House, end: true },
+  { to: '/pacientes', label: 'Pacientes', shortLabel: 'Pacientes', icon: Users },
+  {
+    to: '/medicamentos',
+    label: 'Medicamentos',
+    shortLabel: 'Meds',
+    icon: Pill,
+  },
+  {
+    to: '/configuracoes',
+    label: 'Configurações',
+    shortLabel: 'Config',
+    icon: GearSix,
+  },
 ];
 
 function titleForPath(pathname: string) {
@@ -71,61 +82,89 @@ export function PortalShell() {
 
   return (
     <AlarmProvider>
-    <div className="portal-shell">
-      <aside className="portal-menu" aria-label="Menu principal">
-        <div className="portal-menu__brand" aria-hidden="true">
-          MC
-        </div>
-        <nav className="portal-menu__nav">
-          {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `portal-menu__item${isActive ? ' is-active' : ''}`
-              }
+      <div className="portal-shell">
+        <aside className="portal-menu" aria-label="Menu principal">
+          <div className="portal-menu__brand" aria-hidden="true">
+            MC
+          </div>
+          <nav className="portal-menu__nav">
+            {NAV_ITEMS.map(({ to, label, shortLabel, icon: Icon, end }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                aria-label={label}
+                className={({ isActive }) =>
+                  `portal-menu__item${isActive ? ' is-active' : ''}`
+                }
+              >
+                <Icon weight="regular" aria-hidden="true" />
+                <span className="portal-menu__label portal-menu__label--full">
+                  {label}
+                </span>
+                <span className="portal-menu__label portal-menu__label--short">
+                  {shortLabel}
+                </span>
+              </NavLink>
+            ))}
+            <button
+              type="button"
+              className="portal-menu__item portal-menu__item--button portal-menu__item--desktop-only"
+              onClick={toggleTheme}
+              aria-label="Alternar tema claro/escuro"
             >
-              <Icon weight="regular" aria-hidden="true" />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-          <button
-            type="button"
-            className="portal-menu__item portal-menu__item--button"
-            onClick={toggleTheme}
-            aria-label="Alternar tema claro/escuro"
-          >
-            <ThemeIcon weight="regular" aria-hidden="true" />
-            <span>Tema</span>
-          </button>
-          <button
-            type="button"
-            className="portal-menu__item"
-            onClick={() => {
-              void handleLogout();
-            }}
-          >
-            <SignOut weight="regular" aria-hidden="true" />
-            <span>Sair</span>
-          </button>
-        </nav>
-      </aside>
+              <ThemeIcon weight="regular" aria-hidden="true" />
+              <span>Tema</span>
+            </button>
+            <button
+              type="button"
+              className="portal-menu__item portal-menu__item--desktop-only"
+              onClick={() => {
+                void handleLogout();
+              }}
+            >
+              <SignOut weight="regular" aria-hidden="true" />
+              <span>Sair</span>
+            </button>
+          </nav>
+        </aside>
 
-      <header className="portal-header">
-        <div>
-          <h1 className="portal-header__title">{title}</h1>
-          {auth.caregiver ? (
-            <p className="portal-header__user">{auth.caregiver.name}</p>
-          ) : null}
-        </div>
-        <HeaderClock />
-      </header>
+        <header className="portal-header">
+          <div className="portal-header__left">
+            <h1 className="portal-header__title">{title}</h1>
+            {auth.caregiver ? (
+              <p className="portal-header__user">{auth.caregiver.name}</p>
+            ) : null}
+          </div>
+          <div className="portal-header__right">
+            <HeaderClock />
+            <div className="portal-header__actions">
+              <button
+                type="button"
+                className="portal-header__icon-btn"
+                onClick={toggleTheme}
+                aria-label="Alternar tema claro/escuro"
+              >
+                <ThemeIcon weight="regular" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="portal-header__icon-btn"
+                onClick={() => {
+                  void handleLogout();
+                }}
+                aria-label="Sair"
+              >
+                <SignOut weight="regular" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </header>
 
-      <main className="portal-main">
-        <Outlet />
-      </main>
-    </div>
+        <main className="portal-main">
+          <Outlet />
+        </main>
+      </div>
     </AlarmProvider>
   );
 }

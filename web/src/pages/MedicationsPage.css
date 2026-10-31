@@ -77,3 +77,20 @@
   color: var(--danger-dark);
   font-size: var(--font-xxs);
 }
+
+@media (max-width: 39em) {
+  .meds-search__field,
+  .meds-search__field .patients-input,
+  .meds-textarea {
+    max-width: none;
+    font-size: 16px;
+  }
+
+  .meds-search__field .patients-input {
+    min-height: 44px;
+  }
+
+  .meds-photo-preview {
+    max-width: 100%;
+  }
+}

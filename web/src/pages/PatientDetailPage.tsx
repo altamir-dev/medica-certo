@@ -2,10 +2,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useParams } from 'react-router-dom';
 import { Plus, PencilSimple } from '@phosphor-icons/react';
 import { ApiError } from '../api/client';
@@ -26,6 +28,29 @@ import { useNowMinute } from '../lib/useNow';
 import './PatientsPage.css';
 import './Treatments.css';
 import './PatientSheet.css';
+
+function buildPatientMobileQueue(
+  sheet: PatientSheet,
+  focusTreatmentId: string | null,
+): SheetChip[] {
+  const items: SheetChip[] = [];
+  for (const chips of Object.values(sheet.byDaySlot)) {
+    for (const chip of chips) {
+      if (focusTreatmentId && chip.treatmentId !== focusTreatmentId) continue;
+      if (chip.status !== 'pending') continue;
+      const day = chip.scheduledAt.slice(0, 10);
+      if (!chip.isOverdue && !chip.isNext && day > sheet.today) continue;
+      items.push(chip);
+    }
+  }
+  items.sort((a, b) => {
+    if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+    return (
+      new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+    );
+  });
+  return items.slice(0, 16);
+}
 
 function formatBirthDate(isoDate: string) {
   const [y, m, d] = isoDate.split('-').map(Number);
@@ -121,6 +146,7 @@ export function PatientDetailPage() {
   const [confirmEarly, setConfirmEarly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const calWrapRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -168,6 +194,23 @@ export function PatientDetailPage() {
     () => (sheet ? nearestSlot(sheet.slots, now) : null),
     [sheet, now],
   );
+
+  const mobileQueue = useMemo(
+    () => (sheet ? buildPatientMobileQueue(sheet, focusTreatmentId) : []),
+    [sheet, focusTreatmentId],
+  );
+
+  useEffect(() => {
+    const wrap = calWrapRef.current;
+    if (!wrap || !nearest) return;
+    const target = wrap.querySelector<HTMLElement>('.cal-slot-head.is-nearest');
+    if (!target) return;
+    const left = Math.max(
+      0,
+      target.offsetLeft - wrap.clientWidth / 2 + target.clientWidth / 2,
+    );
+    wrap.scrollTo({ left, behavior: 'smooth' });
+  }, [nearest, sheet?.slots.length]);
 
   function openChip(chip: SheetChip) {
     setModalChip(chip);
@@ -288,6 +331,56 @@ export function PatientDetailPage() {
         </p>
       ) : null}
 
+      {sheet && sheet.medications.length > 0 ? (
+        <section
+          className="portal-card mobile-dose-queue"
+          aria-label="Doses para cuidar agora"
+        >
+          <h2 className="mobile-dose-queue__title">Agora e próximas</h2>
+          {mobileQueue.length === 0 ? (
+            <p className="mobile-dose-queue__empty">
+              Nenhuma dose pendente nesta janela.
+            </p>
+          ) : (
+            <ul className="mobile-dose-queue__list">
+              {mobileQueue.map((chip) => (
+                <li
+                  key={chip.doseId}
+                  className={`mobile-dose-queue__item${chip.isOverdue ? ' is-overdue' : ''}${chip.isNext ? ' is-next' : ''}`}
+                >
+                  <div className="mobile-dose-queue__main">
+                    <span className="mobile-dose-queue__when">
+                      {formatScheduledLabel(chip.scheduledAt)}
+                      {chip.isOverdue ? ' · atrasada' : ''}
+                    </span>
+                    <span className="mobile-dose-queue__name">
+                      <i
+                        className="mobile-dose-queue__swatch"
+                        style={{ background: chip.color }}
+                        aria-hidden="true"
+                      />
+                      {chip.medicationName}
+                    </span>
+                    <span className="mobile-dose-queue__meta">
+                      {chip.doseQuantity} · {chip.route}
+                    </span>
+                  </div>
+                  <div className="mobile-dose-queue__actions">
+                    <button
+                      type="button"
+                      className="patients-btn patients-btn--primary"
+                      onClick={() => openChip(chip)}
+                    >
+                      Registrar
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
       <section className="portal-card cal-card">
         <h2 className="treatments-section-title">Calendário de doses</h2>
 
@@ -346,7 +439,7 @@ export function PatientDetailPage() {
                 Sem doses na janela (ontem → próximos 6 dias).
               </p>
             ) : (
-              <div className="cal-wrap">
+              <div className="cal-wrap" ref={calWrapRef}>
                 <div
                   className="cal-grid"
                   style={{ gridTemplateColumns: gridTemplate }}
@@ -495,7 +588,8 @@ export function PatientDetailPage() {
         </section>
       ) : null}
 
-      {modalChip ? (
+      {modalChip
+        ? createPortal(
         <div
           className="sheet-modal-backdrop"
           role="presentation"
@@ -626,8 +720,10 @@ export function PatientDetailPage() {
               </form>
             )}
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   );
 }

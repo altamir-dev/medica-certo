@@ -198,11 +198,48 @@
     grid-template-columns: 1fr;
   }
 
+  .patients-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .patients-toolbar .patients-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .patients-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
   .patients-row__actions {
     width: 100%;
   }
 
   .patients-row__actions .patients-btn {
     flex: 1;
+    min-height: 44px;
+  }
+
+  .patients-form {
+    max-width: none;
+  }
+
+  .patients-input,
+  .patients-form select,
+  .patients-form textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .patients-form__actions {
+    flex-direction: column-reverse;
+  }
+
+  .patients-form__actions .patients-btn {
+    width: 100%;
+    min-height: 44px;
   }
 }

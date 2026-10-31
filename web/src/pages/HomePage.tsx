@@ -2,15 +2,18 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus } from '@phosphor-icons/react';
 import { ApiError } from '../api/client';
 import {
   getDashboardCalendar,
+  type CalendarDose,
   type CalendarPatientChip,
   type CaregiverCalendar,
 } from '../api/dashboard';
@@ -25,6 +28,43 @@ import './HomePage.css';
 const GRID_ROWS = 3;
 const GRID_COLS = 10;
 const GRID_CELLS = GRID_ROWS * GRID_COLS;
+
+type MobileQueueItem = {
+  day: string;
+  slot: string;
+  chip: CalendarPatientChip;
+  dose: CalendarDose;
+};
+
+function buildMobileQueue(
+  calendar: CaregiverCalendar,
+  focusPatientId: string | null,
+): MobileQueueItem[] {
+  const items: MobileQueueItem[] = [];
+  for (const [key, chips] of Object.entries(calendar.byDaySlot)) {
+    const [day, slot] = key.split('|');
+    if (!day || !slot) continue;
+    for (const chip of chips) {
+      if (focusPatientId && chip.patientId !== focusPatientId) continue;
+      for (const dose of chip.doses) {
+        if (dose.status !== 'pending') continue;
+        const todayOrPast = day <= calendar.today;
+        if (!dose.isOverdue && !dose.isNext && !todayOrPast) continue;
+        items.push({ day, slot, chip, dose });
+      }
+    }
+  }
+  items.sort((a, b) => {
+    if (a.dose.isOverdue !== b.dose.isOverdue) {
+      return a.dose.isOverdue ? -1 : 1;
+    }
+    return (
+      new Date(a.dose.scheduledAt).getTime() -
+      new Date(b.dose.scheduledAt).getTime()
+    );
+  });
+  return items.slice(0, 16);
+}
 
 function formatDaySub(ymd: string) {
   const [y, m, d] = ymd.split('-').map(Number);
@@ -93,6 +133,7 @@ export function HomePage() {
   const [confirmEarly, setConfirmEarly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const calWrapRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -129,6 +170,23 @@ export function HomePage() {
     () => (calendar ? nearestSlot(calendar.slots, now) : null),
     [calendar, now],
   );
+
+  const mobileQueue = useMemo(
+    () => (calendar ? buildMobileQueue(calendar, focusPatientId) : []),
+    [calendar, focusPatientId],
+  );
+
+  useEffect(() => {
+    const wrap = calWrapRef.current;
+    if (!wrap || !nearest) return;
+    const target = wrap.querySelector<HTMLElement>('.cal-slot-head.is-nearest');
+    if (!target) return;
+    const left = Math.max(
+      0,
+      target.offsetLeft - wrap.clientWidth / 2 + target.clientWidth / 2,
+    );
+    wrap.scrollTo({ left, behavior: 'smooth' });
+  }, [nearest, calendar?.slots.length]);
 
   function openPatientChip(
     chip: CalendarPatientChip,
@@ -224,7 +282,7 @@ export function HomePage() {
     <div className="patients-page">
       <div className="patients-toolbar">
         <div>
-          <h1 className="treatments-title">Dashboard</h1>
+          <h1 className="treatments-title page-title-dup">Dashboard</h1>
           <p className="patients-toolbar__hint">
             Quem medicar em cada horário · ontem → próximos dias
           </p>
@@ -241,7 +299,64 @@ export function HomePage() {
         </p>
       ) : null}
 
+      {calendar && calendar.patients.length > 0 ? (
+        <section
+          className="portal-card mobile-dose-queue"
+          aria-label="Doses para cuidar agora"
+        >
+          <h2 className="mobile-dose-queue__title">Agora e próximas</h2>
+          {mobileQueue.length === 0 ? (
+            <p className="mobile-dose-queue__empty">
+              Nenhuma dose pendente nesta janela.
+            </p>
+          ) : (
+            <ul className="mobile-dose-queue__list">
+              {mobileQueue.map(({ day, slot, chip, dose }) => (
+                <li
+                  key={dose.doseId}
+                  className={`mobile-dose-queue__item${dose.isOverdue ? ' is-overdue' : ''}${dose.isNext ? ' is-next' : ''}`}
+                >
+                  <div className="mobile-dose-queue__main">
+                    <span className="mobile-dose-queue__when">
+                      {formatScheduledLabel(dose.scheduledAt)}
+                      {dose.isOverdue ? ' · atrasada' : ''}
+                    </span>
+                    <span className="mobile-dose-queue__name">
+                      <i
+                        className="mobile-dose-queue__swatch"
+                        style={{ background: chip.color }}
+                        aria-hidden="true"
+                      />
+                      {chip.patientName}
+                    </span>
+                    <span className="mobile-dose-queue__meta">
+                      {dose.medicationName} · {dose.doseQuantity} · {dose.route}
+                    </span>
+                  </div>
+                  <div className="mobile-dose-queue__actions">
+                    <button
+                      type="button"
+                      className="patients-btn patients-btn--primary"
+                      onClick={() => {
+                        setSlotModal({ chip, day, slot });
+                        setModalError(null);
+                        setConfirmEarly(false);
+                        setNote('');
+                        startRegister(dose.doseId, dose.scheduledAt);
+                      }}
+                    >
+                      Registrar
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
       <section className="portal-card cal-card">
+        <h2 className="cal-section-title">Folha de horários</h2>
         {calendar === null ? (
           <p className="portal-card__body">Carregando…</p>
         ) : calendar.patients.length === 0 ? (
@@ -293,7 +408,7 @@ export function HomePage() {
                 Sem doses na janela. Configure tratamentos nos pacientes.
               </p>
             ) : (
-              <div className="cal-wrap">
+              <div className="cal-wrap" ref={calWrapRef}>
                 <div
                   className="cal-grid"
                   style={{ gridTemplateColumns: gridTemplate }}
@@ -414,7 +529,8 @@ export function HomePage() {
         )}
       </section>
 
-      {slotModal ? (
+      {slotModal
+        ? createPortal(
         <div
           className="sheet-modal-backdrop"
           role="presentation"
@@ -570,8 +686,10 @@ export function HomePage() {
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   );
 }

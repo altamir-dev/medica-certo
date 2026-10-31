@@ -258,3 +258,63 @@
   font-weight: 700;
   color: var(--muted);
 }
+
+.treatments-grade-cards {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.treatments-grade-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.treatments-grade-card__when {
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+@media (max-width: 39em) {
+  .treatments-form {
+    max-width: none;
+  }
+
+  .treatments-field input,
+  .treatments-field select {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .treatments-actions {
+    flex-direction: column-reverse;
+  }
+
+  .treatments-actions .patients-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .treatments-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .treatments-grade-table {
+    display: none;
+  }
+
+  .treatments-grade-cards {
+    display: flex;
+  }
+}
