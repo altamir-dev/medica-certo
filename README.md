@@ -167,6 +167,16 @@ O workflow só copia `docker-compose.yml` e `deploy.sh`. Não sobrescreve `.env`
 
 Migrações: `server/migrations/*.sql` rodam num container efêmero antes de recriar o app e de novo no boot (a segunda passagem não refaz o que já entrou em `schema_migrations`). Se a migração falha, o app que já estava no ar não é trocado. Se `/api/health` não voltar `"status":"ok"`, o job falha.
 
+Base da Anvisa para a leitura por foto (idempotente; substitui `anvisa_presentations`). Rode depois do deploy, no servidor:
+
+```bash
+cd /docker/medica-certo
+docker compose --env-file .env --env-file image.env exec -T app \
+  node --harmony-temporal server/scripts/import-anvisa.mjs --download
+```
+
+O comando baixa `https://dados.anvisa.gov.br/dados/CONSULTAS/PRODUTOS/TA_CONSULTA_MEDICAMENTOS.CSV` dentro do container.
+
 Subir de novo no servidor, sem novo build:
 
 ```bash

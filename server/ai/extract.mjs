@@ -12,7 +12,7 @@ const ROUTE_SET = new Set([
   'outra',
 ]);
 
-export const PROMPT_VERSION = 'v1';
+export const PROMPT_VERSION = 'v2';
 
 const SYSTEM_PROMPT = `Você lê uma foto de caixa de medicamento ou de receita no Brasil.
 Responda só com JSON no schema pedido.
@@ -20,6 +20,9 @@ Leia apenas o que está visível. Use string vazia e confiança 0 quando não de
 Não invente número de registro, EAN, indicação nem posologia de bula.
 Não devolva nome de paciente, CPF, CRM, endereço ou CID.
 Vários medicamentos na mesma receita viram vários items (no máximo 8).
+brandName é a marca comercial, o nome em maior destaque na embalagem (exemplo: Nusira). Não coloque o princípio ativo nesse campo. Se não houver marca, deixe brandName vazio.
+activeIngredients lista cada princípio ativo separado, com a concentração daquele ativo (exemplo: cloridrato de tramadol 25 mg e diclofenaco sódico 25 mg). Não junte os dois no brandName.
+presentationText é a forma farmacêutica (comprimido, cápsula, solução, gel). Não coloque concentração ali. "25 mg + 25 mg" não é apresentação.
 routeText é o texto da foto ("via oral", "VO"), não um código inventado.
 mode é regular_interval, custom_times ou unknown.`;
 
@@ -47,7 +50,7 @@ export function visionJsonSchema() {
             type: 'object',
             additionalProperties: false,
             properties: {
-              name: { type: 'string' },
+              brandName: { type: 'string' },
               nameConfidence: { type: 'number' },
               manufacturer: { type: ['string', 'null'] },
               presentationText: { type: ['string', 'null'] },
@@ -95,7 +98,7 @@ export function visionJsonSchema() {
               },
             },
             required: [
-              'name',
+              'brandName',
               'nameConfidence',
               'manufacturer',
               'presentationText',
@@ -267,7 +270,12 @@ function sanitizeItem(item) {
       : {};
   const mode = schedule.mode;
   return {
-    name: clip(row.name, 120),
+    brandName: clip(
+      typeof row.brandName === 'string' && row.brandName.trim()
+        ? row.brandName
+        : row.name,
+      120,
+    ),
     nameConfidence: asConf(row.nameConfidence),
     manufacturer: clip(row.manufacturer, 120) || null,
     presentationText: clip(row.presentationText, 200) || null,
@@ -311,6 +319,68 @@ function sanitizeItem(item) {
       rawText: clip(schedule.rawText, 500) || null,
       confidence: asConf(schedule.confidence),
     },
+  };
+}
+
+/**
+ * "25 mg + 25 mg" é concentração. "comprimido revestido" não é.
+ * @param {string} text
+ */
+export function isConcentrationOnly(text) {
+  const raw = String(text ?? '').trim();
+  if (!/\d/.test(raw)) return false;
+  const rest = raw
+    .replace(/\d+(?:[.,]\d+)?\s*(?:mg|mcg|g|ml|ui|%)/gi, '')
+    .replace(/[+/,;]/g, '')
+    .replace(/\s+/g, '');
+  return rest.length === 0;
+}
+
+/**
+ * @param {string[]} parts
+ */
+function joinLabeled(parts) {
+  const cleaned = parts.map((part) => part.trim()).filter(Boolean);
+  if (cleaned.length === 0) return '';
+  if (cleaned.every((part) => part.toLowerCase() === cleaned[0].toLowerCase())) {
+    return cleaned[0].includes('+') ? cleaned[0] : cleaned.join(' + ');
+  }
+  return cleaned.join(' + ');
+}
+
+/**
+ * Marca em destaque vira o nome. Sem marca, o nome é o princípio ativo.
+ * Concentração lida na foto não vai para apresentação.
+ * @param {{ brandName: string, activeIngredients: { name: string, concentration: string | null, confidence: number }[], presentationText: string | null }} item
+ */
+export function composeIdentity(item) {
+  const ingredientNames = item.activeIngredients.map((entry) => entry.name);
+  const ingredientConcentrations = item.activeIngredients.map(
+    (entry) => entry.concentration ?? '',
+  );
+  let activeIngredient = joinLabeled(ingredientNames);
+  let concentration = joinLabeled(ingredientConcentrations);
+  let presentation = (item.presentationText ?? '').trim();
+  const brand = item.brandName.trim();
+  if (isConcentrationOnly(presentation)) {
+    if (!concentration) concentration = presentation;
+    presentation = '';
+  }
+  if (!activeIngredient && brand && concentration) {
+    activeIngredient = brand;
+  }
+  const name = brand || activeIngredient;
+  const confidences = item.activeIngredients
+    .map((entry) => entry.confidence)
+    .filter((value) => value > 0);
+  return {
+    name,
+    activeIngredient,
+    activeIngredientConfidence: confidences.length
+      ? Math.min(...confidences)
+      : 0,
+    concentration,
+    presentation,
   };
 }
 
@@ -363,18 +433,18 @@ function reconcileItem(item, nowIso) {
   const durationDays = item.schedule.durationDays ?? hints.durationDays;
   const endsOn = continuous ? null : endsOnFromDuration(nowIso, durationDays);
   const route = mapRouteText(item.schedule.routeText ?? '');
-  const primary = item.activeIngredients[0];
+  const composed = composeIdentity(item);
   return {
-    name: item.name,
+    name: composed.name,
     nameConfidence: item.nameConfidence,
     nameBand: confidenceBand(item.nameConfidence),
     nameSource: 'image',
     manufacturer: item.manufacturer,
-    activeIngredient: primary?.name ?? '',
-    activeIngredientConfidence: primary?.confidence ?? 0,
-    concentration: primary?.concentration ?? '',
-    concentrationSource: primary?.concentration ? 'image' : '',
-    presentation: item.presentationText ?? '',
+    activeIngredient: composed.activeIngredient,
+    activeIngredientConfidence: composed.activeIngredientConfidence,
+    concentration: composed.concentration,
+    concentrationSource: composed.concentration ? 'image' : '',
+    presentation: composed.presentation,
     anvisaRegistry: '',
     classeTerapeutica: '',
     candidates: [],
