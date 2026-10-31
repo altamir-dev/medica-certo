@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { rankAnvisaCandidates, applyAnvisaMatch } from './anvisa.mjs';
+import { rankAnvisaCandidates, applyAnvisaMatch, normalizeDrugText } from './anvisa.mjs';
+import { parseAnvisaCsv } from './anvisa-csv.mjs';
 import { stripJpegMetadata } from './exif.mjs';
 import {
-  confidenceBand,
-  endsOnFromDuration,
-  mapRouteText,
+  composeIdentity,
   reconcileReading,
   sanitizeModelPayload,
+  mapRouteText,
+  confidenceBand,
+  endsOnFromDuration,
 } from './extract.mjs';
 import { readWithOneRetry } from './openrouter.mjs';
 import { assessUsage, estimateCostUsd, readAiSettings, readingAllowance, saoPauloMonthBounds } from './settings.mjs';
@@ -182,6 +184,134 @@ describe('reconcileReading', () => {
     assert.equal(mapRouteText('tomar'), '');
     assert.equal(mapRouteText('via oral'), 'VO');
     assert.equal(confidenceBand(0.2), 'baixa');
+  });
+
+  it('separa a marca Nusira dos ativos e põe 25 mg + 25 mg na concentração', () => {
+    const sanitized = sanitizeModelPayload({
+      documentKind: 'package',
+      documentKindConfidence: 0.9,
+      unreadable: false,
+      items: [
+        {
+          brandName: 'Nusira',
+          nameConfidence: 0.9,
+          manufacturer: null,
+          presentationText: null,
+          activeIngredients: [
+            {
+              name: 'cloridrato de tramadol',
+              concentration: '25 mg',
+              confidence: 0.8,
+            },
+            {
+              name: 'diclofenaco sódico',
+              concentration: '25 mg',
+              confidence: 0.8,
+            },
+          ],
+          schedule: emptySchedule(),
+        },
+      ],
+    });
+    assert.equal(sanitized.ok, true);
+    if (!sanitized.ok) return;
+    const item = reconcileReading(
+      sanitized.value,
+      '2026-10-31T15:00:00.000Z',
+    ).items[0];
+    assert.equal(item.name, 'Nusira');
+    assert.equal(
+      item.activeIngredient,
+      'cloridrato de tramadol + diclofenaco sódico',
+    );
+    assert.equal(item.concentration, '25 mg + 25 mg');
+    assert.equal(item.concentrationSource, 'image');
+    assert.equal(item.presentation, '');
+    applyAnvisaMatch(
+      item,
+      rankAnvisaCandidates([], {
+        name: item.name,
+        concentration: item.concentration,
+      }),
+    );
+    assert.equal(item.anvisaRegistry, '');
+    assert.equal(item.concentration, '25 mg + 25 mg');
+    assert.equal(item.concentrationSource, 'image');
+  });
+
+  it('tira a concentração da apresentação quando o modelo troca os campos', () => {
+    const sanitized = sanitizeModelPayload({
+      documentKind: 'package',
+      documentKindConfidence: 0.6,
+      unreadable: false,
+      items: [
+        {
+          name: 'cloridrato de tramadol + diclofenaco sódico',
+          nameConfidence: 0.6,
+          manufacturer: null,
+          presentationText: '25 mg + 25 mg',
+          activeIngredients: [],
+          schedule: emptySchedule(),
+        },
+      ],
+    });
+    assert.equal(sanitized.ok, true);
+    if (!sanitized.ok) return;
+    const item = reconcileReading(
+      sanitized.value,
+      '2026-10-31T15:00:00.000Z',
+    ).items[0];
+    assert.equal(item.concentration, '25 mg + 25 mg');
+    assert.equal(item.presentation, '');
+    assert.equal(
+      item.activeIngredient,
+      'cloridrato de tramadol + diclofenaco sódico',
+    );
+  });
+});
+
+function emptySchedule() {
+  return {
+    doseQuantity: null,
+    routeText: null,
+    mode: 'unknown',
+    intervalHours: null,
+    timesOfDay: [],
+    durationDays: null,
+    continuousUse: false,
+    rawText: null,
+    confidence: 0,
+  };
+}
+
+describe('genérico sem marca', () => {
+  it('usa o nome do princípio ativo', () => {
+    const composed = composeIdentity({
+      brandName: '',
+      presentationText: 'comprimido',
+      activeIngredients: [
+        { name: 'dipirona', concentration: '500 mg', confidence: 0.9 },
+      ],
+    });
+    assert.equal(composed.name, 'dipirona');
+    assert.equal(composed.activeIngredient, 'dipirona');
+    assert.equal(composed.concentration, '500 mg');
+    assert.equal(composed.presentation, 'comprimido');
+  });
+});
+
+describe('parseAnvisaCsv', () => {
+  it('lê NO_PRODUTO e ignora inativo', () => {
+    const csv = [
+      'NO_PRODUTO;SUBSTANCIAS_MEDICAMENTOS;NU_REGISTRO_PRODUTO;NO_RAZAO_SOCIAL_EMPRESA;VALIDADE_SITUACAO;COMPLEMENTO',
+      'NUSIRA;CLORIDRATO DE TRAMADOL + DICLOFENACO SODICO;123456789;LAB;Ativo;comprimido',
+      'VELHO;ALGO;111;LAB;Inativo;',
+    ].join('\n');
+    const rows = parseAnvisaCsv(csv, normalizeDrugText);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].produto, 'NUSIRA');
+    assert.match(String(rows[0].substancia), /TRAMADOL/);
+    assert.equal(rows[0].registro, '123456789');
   });
 });
 

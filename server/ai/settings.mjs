@@ -33,7 +33,7 @@ export function readAiSettings(env = process.env) {
     appTitle: String(env.AI_APP_TITLE ?? 'Medica Certo').trim() || 'Medica Certo',
     dataCollection: env.AI_DATA_COLLECTION === 'allow' ? 'allow' : 'deny',
     imageRetainDays: clampInt(env.AI_IMAGE_RETAIN_DAYS, 90, 0, 3650),
-    promptVersion: String(env.AI_PROMPT_VERSION ?? 'v1').trim() || 'v1',
+    promptVersion: String(env.AI_PROMPT_VERSION ?? 'v2').trim() || 'v2',
   };
 }
 

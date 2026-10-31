@@ -1,128 +1,112 @@
 /**
- * Importa um CSV da CMED ou de TA_CONSULTA_MEDICAMENTOS para anvisa_presentations.
- * Uso: node --harmony-temporal server/scripts/import-anvisa.mjs caminho.csv
- * Não baixa a Anvisa e não roda no boot.
+ * Importa o CSV público de medicamentos da Anvisa em anvisa_presentations.
+ * Idempotente: substitui a tabela inteira numa transação.
+ *
+ * Na VPS, dentro do container do app (depois do merge):
+ *   cd /docker/medica-certo
+ *   docker compose --env-file .env --env-file image.env exec -T app \
+ *     node --harmony-temporal server/scripts/import-anvisa.mjs --download
+ *
+ * Fonte: https://dados.anvisa.gov.br/dados/CONSULTAS/PRODUTOS/TA_CONSULTA_MEDICAMENTOS.CSV
+ *
+ * Arquivo local: node --harmony-temporal server/scripts/import-anvisa.mjs caminho.csv
  */
+import { writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { config } from '../config.mjs';
 import { getPool, closeDb } from '../db.mjs';
 import { normalizeDrugText } from '../ai/anvisa.mjs';
+import {
+  ANVISA_MEDICAMENTOS_CSV_URL,
+  parseAnvisaCsv,
+} from '../ai/anvisa-csv.mjs';
 
-const file = process.argv[2];
-if (!file) {
-  console.error('Informe o CSV.');
+const arg = process.argv[2];
+if (!arg) {
+  console.error(
+    'Use --download ou o caminho de um CSV. URL padrão:',
+    ANVISA_MEDICAMENTOS_CSV_URL,
+  );
   process.exit(1);
 }
 
-const text = await readFile(file, 'utf8');
-const lines = text.split(/\r?\n/).filter((line) => line.trim());
-const delimiter = lines[0]?.includes(';') ? ';' : ',';
-const header = splitCsv(lines[0], delimiter).map((cell) =>
-  cell.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim(),
-);
+const download = arg === '--download';
+const sourcePath = download
+  ? join(tmpdir(), 'ta-consulta-medicamentos.csv')
+  : arg;
 
-const col = (...names) => {
-  for (const name of names) {
-    const index = header.indexOf(name);
-    if (index >= 0) return index;
+if (download) {
+  console.log(`Baixando ${ANVISA_MEDICAMENTOS_CSV_URL}`);
+  const response = await fetch(ANVISA_MEDICAMENTOS_CSV_URL);
+  if (!response.ok) {
+    console.error(`Download falhou: HTTP ${response.status}`);
+    process.exit(1);
   }
-  return -1;
-};
-
-const iProduto = col('produto', 'nome_produto', 'nome produto');
-const iSubstancia = col('substancia', 'principio_ativo', 'principio ativo');
-const iRegistro = col('registro', 'numero_registro_produto', 'numero registro produto');
-const iApresentacao = col('apresentacao');
-const iLaboratorio = col('laboratorio', 'empresa_detentora_registro');
-const iEan = col('ean');
-const iTarja = col('tarja');
-const iClasse = col('classe_terapeutica', 'classe terapeutica');
-const iSituacao = col('situacao_registro', 'situacao registro');
-
-if (iProduto < 0) {
-  console.error('CSV sem coluna de produto.');
-  process.exit(1);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  await writeFile(sourcePath, bytes);
+  console.log(`Arquivo salvo (${bytes.length} bytes) em ${sourcePath}`);
 }
+
+const text = await readFile(sourcePath, 'latin1');
+const parsed = parseAnvisaCsv(text, normalizeDrugText);
+const seen = new Set();
+const rows = [];
+for (const row of parsed) {
+  const key = `${row.registro}|${row.produtoNorm}|${row.substanciaNorm}`;
+  if (seen.has(key)) continue;
+  seen.add(key);
+  rows.push(row);
+}
+console.log(
+  `${rows.length} produtos ativos únicos (${parsed.length} linhas ativas no CSV).`,
+);
 
 const pool = getPool();
 const client = await pool.connect();
+const batchSize = 400;
 try {
   await client.query('BEGIN');
-  await client.query('TRUNCATE anvisa_presentations');
-  let count = 0;
-  for (const line of lines.slice(1)) {
-    const cells = splitCsv(line, delimiter);
-    const produto = cell(cells, iProduto);
-    if (!produto) continue;
-    const substancia = cell(cells, iSubstancia);
-    const registro = cell(cells, iRegistro).replace(/\D/g, '');
+  await client.query('TRUNCATE anvisa_presentations RESTART IDENTITY');
+  for (let offset = 0; offset < rows.length; offset += batchSize) {
+    const batch = rows.slice(offset, offset + batchSize);
+    const values = [];
+    const params = [];
+    let n = 1;
+    for (const row of batch) {
+      values.push(
+        `($${n++},$${n++},$${n++},$${n++},$${n++},$${n++},$${n++},$${n++},$${n++},$${n++},$${n++},$${n++})`,
+      );
+      params.push(
+        row.registro,
+        row.registroProduto,
+        row.produto,
+        row.substancia,
+        row.apresentacao,
+        row.laboratorio,
+        row.ean,
+        row.tarja,
+        row.classeTerapeutica,
+        row.situacaoRegistro,
+        row.produtoNorm,
+        row.substanciaNorm,
+      );
+    }
     await client.query(
       `INSERT INTO anvisa_presentations (
          registro, registro_produto, produto, substancia, apresentacao,
          laboratorio, ean, tarja, classe_terapeutica, situacao_registro,
          produto_norm, substancia_norm
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [
-        registro || '0',
-        registro.slice(0, 9),
-        produto,
-        substancia || null,
-        cell(cells, iApresentacao) || null,
-        cell(cells, iLaboratorio) || null,
-        cell(cells, iEan) || null,
-        cell(cells, iTarja) || null,
-        cell(cells, iClasse) || null,
-        cell(cells, iSituacao) || null,
-        normalizeDrugText(produto),
-        normalizeDrugText(substancia),
-      ],
+       ) VALUES ${values.join(',')}`,
+      params,
     );
-    count += 1;
   }
   await client.query('COMMIT');
-  console.log(`Importadas ${count} apresentações. DATABASE_URL em uso de ${config.publicHost}.`);
+  console.log(`Importação concluída: ${rows.length} linhas.`);
 } catch (err) {
   await client.query('ROLLBACK');
   throw err;
 } finally {
   client.release();
   await closeDb();
-}
-
-/**
- * @param {string} line
- * @param {string} delimiter
- */
-function splitCsv(line, delimiter) {
-  /** @type {string[]} */
-  const cells = [];
-  let current = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    if (char === '"') {
-      if (quoted && line[i + 1] === '"') {
-        current += '"';
-        i += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === delimiter && !quoted) {
-      cells.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-/**
- * @param {string[]} cells
- * @param {number} index
- */
-function cell(cells, index) {
-  if (index < 0) return '';
-  return cells[index] ?? '';
 }
