@@ -246,12 +246,14 @@ export async function aiRoutes(app) {
           'Esta leitura não pode mais ser confirmada.',
         );
       }
+      const fields = { ...(result.fields ?? {}) };
+      if (result.index != null) fields.itemIndex = String(result.index);
       return sendError(
         reply,
         400,
         'VALIDATION',
         result.message ?? 'Dados inválidos.',
-        result.fields,
+        Object.keys(fields).length > 0 ? fields : undefined,
       );
     }
     return reply.code(result.already ? 200 : 201).send({

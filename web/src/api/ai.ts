@@ -111,6 +111,7 @@ export type ConfirmItem = {
   concentration: string;
   presentation: string;
   anvisaRegistry: string;
+  referencePosology: string;
   reuseExistingId?: string;
   createTreatment: boolean;
   doseQuantity: string;

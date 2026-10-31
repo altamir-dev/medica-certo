@@ -21,12 +21,23 @@ type Mode = 'create' | 'edit';
 
 type FormLocationState = {
   photoUploadError?: string;
+  offerTreatment?: boolean;
+  patientId?: string | null;
 };
 
 function readPhotoUploadError(state: unknown): string | null {
   if (!state || typeof state !== 'object') return null;
   const value = (state as FormLocationState).photoUploadError;
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readOfferTreatment(state: unknown): string | null {
+  if (!state || typeof state !== 'object') return null;
+  const value = state as FormLocationState;
+  if (!value.offerTreatment) return null;
+  return typeof value.patientId === 'string' && value.patientId
+    ? `/pacientes/${value.patientId}/tratamentos/novo`
+    : '/pacientes';
 }
 
 export function MedicationFormPage() {
@@ -38,6 +49,7 @@ export function MedicationFormPage() {
   const prefillName = searchParams.get('name') ?? '';
   const returnTo = safeReturnTo(searchParams.get('returnTo'));
   const photoUploadErrorFromState = readPhotoUploadError(location.state);
+  const [offerTreatmentHref] = useState(() => readOfferTreatment(location.state));
 
   const [name, setName] = useState(mode === 'create' ? prefillName : '');
   const [activeIngredient, setActiveIngredient] = useState('');
@@ -278,6 +290,21 @@ export function MedicationFormPage() {
           Nome é obrigatório. Princípio ativo, indicação, posologia, intervalo e
           foto são opcionais.
         </p>
+        {offerTreatmentHref ? (
+          <>
+            <p className="portal-card__body">
+              A posologia com horário entra no tratamento do paciente.
+            </p>
+            <p className="patients-form__actions">
+              <Link
+                to={offerTreatmentHref}
+                className="patients-btn patients-btn--secondary"
+              >
+                Criar o tratamento
+              </Link>
+            </p>
+          </>
+        ) : null}
 
         <form className="patients-form" onSubmit={onSubmit} noValidate>
           <label className="patients-field">
