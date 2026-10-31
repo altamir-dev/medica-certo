@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+web/node_modules
+server/node_modules
+web/dist
+data
+.env
+.env.*
+!.env.example
+docs
+deploy
+*.md
+coverage
+*.log
+.DS_Store

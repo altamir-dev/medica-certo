@@ -1,5 +1,5 @@
-# Local first: `docker compose up -d postgres` then `npm run dev`.
-# Produção (depois): deploy em /docker/medica-certo na VPS, Traefik host medica-certo.altamir.dev.
+# Local: `docker compose up -d postgres` e depois `npm run dev`.
+# Produção: deploy/compose.vps.yaml em /docker/medica-certo na VPS (Traefik, sem portas publicadas).
 name: medica-certo
 
 services:
