@@ -205,6 +205,61 @@
   opacity: 0.22;
 }
 
+.cal-cell-picker {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cal-cell-picker__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+  box-sizing: border-box;
+}
+
+.cal-cell-picker__option:active {
+  background: color-mix(in srgb, var(--primary) 8%, var(--paper));
+}
+
+.cal-cell-picker__swatch {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.cal-cell-picker__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cal-cell-picker__title {
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.cal-cell-picker__meta {
+  font-size: var(--font-xxs);
+  color: var(--muted);
+}
+
 .cal-legend {
   display: flex;
   flex-wrap: wrap;
@@ -493,6 +548,29 @@
 
   .cal-subcell--med {
     min-height: 14px;
+  }
+
+  button.cal-cell--tap {
+    appearance: none;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  button.cal-cell--tap .cal-subcell--med {
+    cursor: default;
+    pointer-events: none;
+  }
+
+  button.cal-cell--tap:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+
+  .cal-cell-picker__option {
+    min-height: 48px;
   }
 
   .sheet-modal-backdrop {

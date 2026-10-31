@@ -29,6 +29,7 @@ import {
   type SheetChip,
 } from '../api/doses';
 import { nearestSlot } from '../lib/clock';
+import { useNarrowViewport } from '../lib/useNarrowViewport';
 import { useNowMinute } from '../lib/useNow';
 import './PatientsPage.css';
 import './Treatments.css';
@@ -143,8 +144,24 @@ const GRID_ROWS = 3;
 const GRID_COLS = 10;
 const GRID_CELLS = GRID_ROWS * GRID_COLS;
 
+type ChipPicker = {
+  day: string;
+  slot: string;
+  chips: SheetChip[];
+};
+
+function chipStatusLabel(chip: SheetChip): string {
+  if (chip.status === 'administered' && chip.administeredAt) {
+    return `dado às ${formatStamp(chip.administeredAt)}`;
+  }
+  if (chip.isOverdue) return 'atrasada';
+  if (chip.status === 'pending') return 'pendente';
+  return chip.status;
+}
+
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const narrow = useNarrowViewport();
   const now = useNowMinute();
   const ai = useAiStatus();
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -157,6 +174,8 @@ export function PatientDetailPage() {
   >(null);
 
   const [modalChip, setModalChip] = useState<SheetChip | null>(null);
+  const [chipPicker, setChipPicker] = useState<ChipPicker | null>(null);
+  const chipPickerReturnRef = useRef<ChipPicker | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>('register');
   const [administeredAtLocal, setAdministeredAtLocal] = useState('');
   const [note, setNote] = useState('');
@@ -229,7 +248,9 @@ export function PatientDetailPage() {
     wrap.scrollTo({ left, behavior: 'smooth' });
   }, [nearest, sheet?.slots.length]);
 
-  function openChip(chip: SheetChip) {
+  function openChip(chip: SheetChip, returnPicker?: ChipPicker | null) {
+    chipPickerReturnRef.current = returnPicker ?? null;
+    setChipPicker(null);
     setModalChip(chip);
     setModalError(null);
     setConfirmEarly(false);
@@ -246,10 +267,32 @@ export function PatientDetailPage() {
     }
   }
 
+  function onMobileCellTap(day: string, slot: string, chips: SheetChip[]) {
+    if (chips.length === 0) return;
+    if (chips.length === 1) {
+      openChip(chips[0]);
+      return;
+    }
+    setChipPicker({ day, slot, chips });
+  }
+
+  function openChipFromPicker(chip: SheetChip) {
+    if (!chipPicker) return;
+    openChip(chip, chipPicker);
+  }
+
   function closeModal() {
     if (saving) return;
+    if (chipPickerReturnRef.current) {
+      setChipPicker(chipPickerReturnRef.current);
+      chipPickerReturnRef.current = null;
+    }
     setModalChip(null);
     setModalError(null);
+  }
+
+  function closeChipPicker() {
+    setChipPicker(null);
   }
 
   async function onConfirmModal(event: FormEvent) {
@@ -272,6 +315,8 @@ export function PatientDetailPage() {
         });
       }
       setModalChip(null);
+      chipPickerReturnRef.current = null;
+      setChipPicker(null);
       await load();
     } catch (err) {
       if (err instanceof ApiError && err.code === 'CONFIRM_EARLY_REQUIRED') {
@@ -509,63 +554,88 @@ export function PatientDetailPage() {
                           if (idx === undefined) continue;
                           chipByIndex.set(idx, chip);
                         }
-                        return (
+                        const cellClasses = `cal-cell${day.isToday ? ' is-today' : ''}${slot === nearest ? ' is-nearest' : ''}${narrow && chipsHere.length > 0 ? ' cal-cell--tap' : ''}`;
+                        const subcellGrid = (
                           <div
-                            key={key}
-                            className={`cal-cell${day.isToday ? ' is-today' : ''}${slot === nearest ? ' is-nearest' : ''}`}
+                            className="cal-cell-grid"
+                            style={
+                              {
+                                ['--grid-rows']: GRID_ROWS,
+                                ['--grid-cols']: GRID_COLS,
+                              } as CSSProperties
+                            }
+                            aria-label={`Doses às ${slot}`}
                           >
-                            <div
-                              className="cal-cell-grid"
-                              style={
-                                {
-                                  ['--grid-rows']: GRID_ROWS,
-                                  ['--grid-cols']: GRID_COLS,
-                                } as CSSProperties
-                              }
-                              aria-label={`Doses às ${slot}`}
-                            >
-                              {Array.from({ length: GRID_CELLS }, (_, idx) => {
-                                const chip = chipByIndex.get(idx);
-                                if (!chip) {
-                                  return (
-                                    <span
-                                      key={idx}
-                                      className="cal-subcell"
-                                      aria-hidden="true"
-                                    />
-                                  );
-                                }
-                                const focused =
-                                  focusTreatmentId === null ||
-                                  focusTreatmentId === chip.treatmentId;
-                                const filled = chip.status === 'administered';
-                                const classes = [
-                                  'cal-subcell',
-                                  'cal-subcell--med',
-                                  filled ? 'cal-subcell--filled' : '',
-                                  chip.isNext ? 'cal-subcell--next' : '',
-                                  chip.isOverdue ? 'cal-subcell--overdue' : '',
-                                  focused ? '' : 'cal-subcell--dim',
-                                ]
-                                  .filter(Boolean)
-                                  .join(' ');
+                            {Array.from({ length: GRID_CELLS }, (_, idx) => {
+                              const chip = chipByIndex.get(idx);
+                              if (!chip) {
                                 return (
-                                  <button
-                                    key={chip.doseId}
-                                    type="button"
-                                    className={classes}
-                                    style={
-                                      {
-                                        ['--chip-color']: chip.color,
-                                      } as CSSProperties
-                                    }
-                                    title={`${chip.medicationName} · previsto ${formatScheduledLabel(chip.scheduledAt)}${filled && chip.administeredAt ? ` · dado às ${formatStamp(chip.administeredAt)}` : ''}`}
-                                    aria-label={`${chip.medicationName} às ${slot}`}
-                                    onClick={() => openChip(chip)}
+                                  <span
+                                    key={idx}
+                                    className="cal-subcell"
+                                    aria-hidden="true"
                                   />
                                 );
-                              })}
-                            </div>
+                              }
+                              const focused =
+                                focusTreatmentId === null ||
+                                focusTreatmentId === chip.treatmentId;
+                              const filled = chip.status === 'administered';
+                              const classes = [
+                                'cal-subcell',
+                                'cal-subcell--med',
+                                filled ? 'cal-subcell--filled' : '',
+                                chip.isNext ? 'cal-subcell--next' : '',
+                                chip.isOverdue ? 'cal-subcell--overdue' : '',
+                                focused ? '' : 'cal-subcell--dim',
+                              ]
+                                .filter(Boolean)
+                                .join(' ');
+                              const style = {
+                                ['--chip-color']: chip.color,
+                              } as CSSProperties;
+                              if (narrow) {
+                                return (
+                                  <span
+                                    key={chip.doseId}
+                                    className={classes}
+                                    style={style}
+                                    aria-hidden="true"
+                                  />
+                                );
+                              }
+                              return (
+                                <button
+                                  key={chip.doseId}
+                                  type="button"
+                                  className={classes}
+                                  style={style}
+                                  title={`${chip.medicationName} · previsto ${formatScheduledLabel(chip.scheduledAt)}${filled && chip.administeredAt ? ` · dado às ${formatStamp(chip.administeredAt)}` : ''}`}
+                                  aria-label={`${chip.medicationName} às ${slot}`}
+                                  onClick={() => openChip(chip)}
+                                />
+                              );
+                            })}
+                          </div>
+                        );
+                        if (narrow && chipsHere.length > 0) {
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              className={cellClasses}
+                              aria-label={`Horário ${slot}, ${formatDaySub(day.ymd)}, ${chipsHere.length} medicamento(s)`}
+                              onClick={() =>
+                                onMobileCellTap(day.ymd, slot, chipsHere)
+                              }
+                            >
+                              {subcellGrid}
+                            </button>
+                          );
+                        }
+                        return (
+                          <div key={key} className={cellClasses}>
+                            {subcellGrid}
                           </div>
                         );
                       })}
@@ -716,6 +786,65 @@ export function PatientDetailPage() {
           }}
         />
       ) : null}
+
+      {chipPicker
+        ? createPortal(
+            <div
+              className="sheet-modal-backdrop"
+              role="presentation"
+              onClick={closeChipPicker}
+            >
+              <div
+                className="sheet-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="chip-picker-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 id="chip-picker-title">Escolher medicamento</h2>
+                <p>
+                  {formatDaySub(chipPicker.day)} · {chipPicker.slot}
+                </p>
+                <ul className="cal-cell-picker">
+                  {chipPicker.chips.map((chip) => (
+                    <li key={chip.doseId}>
+                      <button
+                        type="button"
+                        className="cal-cell-picker__option"
+                        onClick={() => openChipFromPicker(chip)}
+                      >
+                        <i
+                          className="cal-cell-picker__swatch"
+                          style={{ background: chip.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="cal-cell-picker__main">
+                          <span className="cal-cell-picker__title">
+                            {chip.medicationName}
+                          </span>
+                          <span className="cal-cell-picker__meta">
+                            {chip.doseQuantity} · {chip.route} ·{' '}
+                            {chipStatusLabel(chip)}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="sheet-modal__actions">
+                  <button
+                    type="button"
+                    className="patients-btn patients-btn--secondary"
+                    onClick={closeChipPicker}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {modalChip
         ? createPortal(
