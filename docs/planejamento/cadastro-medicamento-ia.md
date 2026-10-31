@@ -21,7 +21,7 @@ A posologia sugerida não substitui o médico nem a bula. O app é o caderno do 
 
 **Provedor: OpenRouter.** O servidor chama `https://openrouter.ai/api/v1` no formato chat completions. Não há cliente da API direta da DeepSeek nem do 9router neste fluxo. A base URL também vem de `AI_BASE_URL`, para o deploy apontar para a OpenRouter sem recompilar.
 
-**Modelo e chave só em ambiente.** O código não traz slug nem segredo. Com `AI_ENABLED=1`, o boot falha se `AI_MODEL` ou `AI_API_KEY` estiver vazio. O valor previsto de `AI_MODEL` é `deepseek/deepseek-v4.1-flash-1017` (snapshot de 17/10/2026 do DeepSeek V4.1 Flash, o Flash mais novo com visão no catálogo em 31/10/2026). Visão nativa, JSON schema em `response_format`. A chamada desliga o raciocínio (`reasoning.enabled: false`), para a saída ser o JSON. Trocar o modelo é editar o `.env` da VPS e subir de novo; isso invalida o aceite de envio da imagem. O alias `~deepseek/deepseek-flash-latest` continua fora do exemplo: não tem preço próprio, e um alias vizinho já apontou para um Flash sem visão.
+**Modelo e chave só em ambiente.** O código não traz slug nem segredo. Sem `AI_API_KEY`, sem `AI_MODEL` ou com `AI_ENABLED` diferente de `1`, a leitura por foto fica desligada e o processo sobe normalmente. O valor previsto de `AI_MODEL` é `deepseek/deepseek-v4.1-flash-1017` (snapshot de 17/10/2026 do DeepSeek V4.1 Flash, o Flash mais novo com visão no catálogo em 31/10/2026). Visão nativa, JSON schema em `response_format`. A chamada desliga o raciocínio (`reasoning.enabled: false`), para a saída ser o JSON. Trocar o modelo é editar o `.env` da VPS e subir de novo; isso invalida o aceite de envio da imagem. O alias `~deepseek/deepseek-flash-latest` continua fora do exemplo: não tem preço próprio, e um alias vizinho já apontou para um Flash sem visão.
 
 Preço de tabela desse slug na OpenRouter: **US$ 0,0141 / US$ 0,144 por 1M tokens**, ordem de **US$ 0,00013 por foto**. A OpenRouter escolhe o host. Latência alvo **5 a 15 s**; timeout **45 s**. O pedido manda `data_collection: "deny"` e `require_parameters: true`.
 
@@ -181,11 +181,11 @@ Receita com vários itens: uma lista. Cada item é um bloco com os campos acima.
 |---|---|---|
 | Arquivo vazio, MIME errado, magic bytes falsos, acima de 8 MB | Erro no passo de captura. A IA não é chamada | Nada |
 | HEIC | “Use JPEG, PNG ou WebP.” Sem conversor na v1 | Nada |
-| Provedor fora, timeout, HTTP 5xx | “Não consegui ler a foto.” Tentar de novo ou preencher à mão | Rascunho `failed`, imagem até expirar (24 h) |
+| Provedor fora, timeout, HTTP 5xx | “Não consegui ler a foto.” Tentar de novo ou preencher à mão | Rascunho `failed`, imagem até o prazo de retenção |
 | JSON ilegível depois de uma nova tentativa | O mesmo, com os campos vazios se algo tiver sido salvo como `ready` parcial — na prática marca `failed` | Rascunho `failed` |
 | Foto que não é caixa nem receita | Revisão com tipo “Não reconhecido” e campos vazios | Rascunho `ready`, nada no catálogo |
 | Nome já existe | “Você já tem {nome}.” Ações: usar o existente (e seguir para o tratamento, se houver paciente) ou voltar e editar o nome | Sem segundo medicamento |
-| Limite diário ou teto mensal | “Limite de leituras atingido. Dá para cadastrar à mão.” | Nada além do contador |
+| Cota do mês | “Você já usou as 5 leituras deste mês. Dá para cadastrar o medicamento à mão.” O formulário manual segue aberto | Nada além do contador |
 | `AI_ENABLED` desligado | O botão de foto não aparece. A rota de análise responde 404 | Nada |
 | Sessão cai no meio | Login de novo; o rascunho continua do cuidador se ainda não expirou | Rascunho |
 
@@ -444,8 +444,9 @@ O aceite só vale se provedor e modelo gravados baterem com a config atual.
 | `candidates jsonb NULL` | Até 5 linhas Anvisa/CMED por item, sem preço (preço não é desta feature) |
 | `confirmed_medication_ids uuid[]` | Preenchido na confirmação |
 | `confirmed_treatment_ids uuid[]` | Idem |
-| `expires_at timestamptz NOT NULL` | Criação + 24 h para quem não confirmou |
-| `image_purge_at timestamptz NULL` | Para receita confirmada, criação + 30 dias (proposta) |
+| `expires_at timestamptz NOT NULL` | Criação + `AI_IMAGE_RETAIN_DAYS` (padrão 90) |
+| `image_purge_at timestamptz NULL` | Na confirmação, o mesmo prazo, para receita e para foto de embalagem |
+| `copied_photo_paths text[]` | Cópias no catálogo, apagadas junto com a foto de origem |
 | `created_at`, `updated_at` | |
 
 Índice `(caregiver_id, status, created_at)`.
@@ -541,35 +542,30 @@ Transferência internacional: a imagem sai do Brasil (art. 33) e vai para a Open
 
 ### 9.2 Retenção
 
-| Dado | Prazo proposto | Apagar significa |
+| Dado | Prazo | Apagar significa |
 |---|---|---|
-| Rascunho não confirmado e a imagem | 24 h (`expires_at`) | Arquivo removido, status `expired`, `extracted` anulado |
-| `processing` abandonado | 2 min → `failed`; a imagem segue a regra das 24 h | |
-| Foto de embalagem no catálogo | Enquanto o medicamento existir (igual hoje) | `deleteMedication` já remove `photo_path` |
-| Imagem de receita depois de confirmar | **30 dias** (`image_purge_at`), depois o arquivo some e `image_path` anula | Os campos que a pessoa confirmou (nome, dose, horários) permanecem: são o caderno |
-| `extracted` do rascunho confirmado | 30 dias, junto com a imagem | Depois guarda só ids confirmados, modelo, `prompt_version` e o hash |
-| `medication_ai_events` e `ai_usage_daily` | 12 meses | Sem conteúdo clínico; serve ao teto de custo |
+| Imagem da receita e imagem da foto (rascunho ou confirmada) | **90 dias** (`AI_IMAGE_RETAIN_DAYS`) | O job do scheduler apaga o arquivo. Os campos confirmados (nome, dose, horários) permanecem |
+| Foto copiada para o catálogo | Os mesmos 90 dias | `photo_path` volta a vazio se ainda for essa cópia. Uma foto trocada depois, à mão, não entra nessa lista |
+| `processing` abandonado | 2 min → `failed`; o arquivo segue os 90 dias | |
+| `extracted` do rascunho | Junto com a imagem | Depois guarda só ids confirmados, modelo e `prompt_version` |
+| `medication_ai_events` | 12 meses | Sem a imagem; serve para contar a cota do mês |
 | Log stdout | O que o Docker já rotaciona (`max-size` 10 MB no Compose da VPS) | Proibido logar body da IA |
 
-O expurgo roda no scheduler in-process, a cada ciclo ou no máximo a cada 15 min. Falha de apagar arquivo é logada e tentada de novo; a linha não fica `expired` enquanto o arquivo existir.
+Decisão do Altamir (31/10/2026): receita e foto ficam 90 dias e o scheduler apaga. O prazo é `AI_IMAGE_RETAIN_DAYS`, padrão 90.
 
-Proposta de 30 dias é conservadora para o cuidador conferir uma leitura. Apagar a receita no ato da confirmação é mais alinhado à minimização, e está na lista de perguntas. Até lá, o plano implementa 30 dias **só se** a resposta for essa. Se não houver resposta, a implementação para na F6 sem ligar `AI_ENABLED` em produção — a F7 não escolhe o prazo no lugar do Altamir. Para desenvolvimento, o default do código pode ser 24 h também na receita confirmada (o mais curto), e a env `AI_PRESCRIPTION_RETAIN_DAYS` sobe para 30 só com decisão explícita.
+### 9.3 Cota
 
-### 9.3 Limites e custo
-
-| Controle | Valor proposto | Onde vive |
+| Controle | Valor | Onde vive |
 |---|---|---|
 | Tamanho de upload | 8 MB | multipart do plugin de rascunho |
 | Imagem guardada | JPEG ≤ 1600 px | servidor |
 | Timeout da chamada | 45 s | `AbortSignal` |
 | Retentativa automática | 1, só JSON inválido com HTTP 200 | memória do pedido |
 | Em voo | 1 rascunho `processing` por cuidador | Postgres |
-| Por dia | 30 chamadas | `ai_usage_daily` |
-| Por hora | 10 chamadas | limitador em memória (réplica única), além do diário |
-| Por mês | US$ 5 estimados | soma de `ai_usage_daily` no mês corrente |
-| IA desligada | `AI_ENABLED` diferente de `1` | rota 404, botão oculto |
+| Por mês-calendário | **5 leituras** por cuidador | `medication_ai_events` no intervalo do mês em `America/Sao_Paulo`. Env `AI_MONTHLY_LIMIT`, padrão 5 |
+| IA desligada | `AI_ENABLED` diferente de `1` ou sem chave/modelo | rota 404, botão oculto |
 
-O contador diário incrementa **antes** da chamada, na mesma transação que cria o evento em estado pendente, para dois cliques não passarem. Estouro responde 429 `RATE_LIMITED` ou 429 `AI_BUDGET` sem chamar o provedor.
+A contagem é a de leituras iniciadas naquele mês de São Paulo, não a de dólares. Ao atingir a cota, a tela diz que o mês acabou e o cadastro manual continua disponível. A 6ª leitura não chama a OpenRouter.
 
 Custo estimado usa preços em env (`AI_PRICE_INPUT_PER_MILLION`, `AI_PRICE_OUTPUT_PER_MILLION`). O exemplo acompanha a tabela do slug previsto (US$ 0,0141 e US$ 0,144). Se o uso não vier na resposta, estimar 3 000 tokens de entrada e 800 de saída (para cima), para o teto não ficar cego.
 
@@ -597,20 +593,18 @@ O Compose da VPS usa `env_file: .env` e um bloco `environment:` que **não** lis
 |---|---|---|
 | `AI_ENABLED` | `0` | `1` liga rotas e botão. Default `0` |
 | `AI_BASE_URL` | `https://openrouter.ai/api/v1` | Sem barra final. Provedor deste fluxo |
-| `AI_API_KEY` | — | Bearer da OpenRouter. Sem default. Vazio com `AI_ENABLED=1` impede o boot |
+| `AI_API_KEY` | — | Bearer da OpenRouter. Sem default. Vazio deixa a leitura por foto desligada e o app sobe |
 | `AI_MODEL` | `deepseek/deepseek-v4.1-flash-1017` | Slug lido do ambiente. Sem default no código. Sem alias `~…-latest` e sem Jev no exemplo |
 | `AI_PROVIDER_NAME` | `OpenRouter` | Texto do aviso, junto com o slug de `AI_MODEL`. Obrigatório se `AI_ENABLED=1` |
 | `AI_TIMEOUT_MS` | `45000` | |
 | `AI_MAX_UPLOAD_BYTES` | `8388608` | 8 MB |
-| `AI_DAILY_LIMIT` | `30` | Por cuidador |
-| `AI_HOURLY_LIMIT` | `10` | Por cuidador |
-| `AI_MONTHLY_BUDGET_USD` | `5` | Estimativa |
+| `AI_MONTHLY_LIMIT` | `5` | Leituras por cuidador no mês-calendário de `America/Sao_Paulo` |
 | `AI_PRICE_INPUT_PER_MILLION` | `0.0141` | Tabela OpenRouter do slug previsto. Ajustar no `.env` se a fatura divergir |
 | `AI_PRICE_OUTPUT_PER_MILLION` | `0.144` | Idem |
 | `AI_HTTP_REFERER` | `https://medica-certo.altamir.dev` | Header da OpenRouter. Vazio se a base não for OpenRouter |
 | `AI_APP_TITLE` | `Medica Certo` | Header `X-Title` |
 | `AI_DATA_COLLECTION` | `deny` | `deny` ou `allow`. Default `deny`. `allow` em produção deve exigir a pergunta em aberto respondida |
-| `AI_PRESCRIPTION_RETAIN_DAYS` | `1` | Dias de arquivo depois de confirmar receita. `0` apaga na confirmação. Subir para 30 só com decisão |
+| `AI_IMAGE_RETAIN_DAYS` | `90` | Dias em que a imagem da receita ou da foto permanece. O scheduler apaga depois disso. `0` apaga na confirmação |
 | `AI_PROMPT_VERSION` | `v1` | Opcional; pode ser constante no código. Útil para invalidar aceite se um dia o prompt passar a pedir mais dados |
 
 Não adicionar `AI_API_KEY` em workflow do GitHub. O deploy não reconstrói o `.env`.
@@ -718,7 +712,7 @@ Aceite:
 - JPEG de teste com comentário EXIF/GPS, depois da regravação, não contém o marcador GPS (teste no buffer).
 - Consentimento ausente → `CONSENT_REQUIRED` e zero chamadas.
 - Trocar `AI_MODEL` no config do teste invalida o aceite.
-- Com `AI_ENABLED=1` e sem `AI_MODEL` ou sem `AI_API_KEY`, o boot falha. O fonte não contém um slug de reserva.
+- Com `AI_ENABLED=1` e sem `AI_MODEL` ou sem `AI_API_KEY`, a feature fica desligada e o processo sobe. O fonte não contém um slug de reserva.
 - `AI_ENABLED=0` → POST 404.
 - Checklist manual do PR: `.env` da VPS ainda não recebe a chave até o Altamir pedir para ligar.
 
@@ -765,18 +759,36 @@ Aceite:
 - **Provedor:** OpenRouter (`AI_BASE_URL=https://openrouter.ai/api/v1`). Sem API direta da DeepSeek e sem 9router neste fluxo.
 - **Modelo e chave:** só em ambiente (`AI_MODEL`, `AI_API_KEY`), sem default no código. O valor previsto do modelo é `deepseek/deepseek-v4.1-flash-1017`.
 
+- **Cota:** 5 leituras por cuidador em cada mês-calendário de `America/Sao_Paulo` (`AI_MONTHLY_LIMIT`, padrão 5). O teto efetivo sai de `readingAllowance` (base do env + créditos extras, hoje 0). Na cota esgotada a tela avisa e o cadastro manual continua.
+- **Retenção:** a imagem da receita e a foto ficam 90 dias (`AI_IMAGE_RETAIN_DAYS`, padrão 90) e o scheduler apaga o arquivo. A cópia que virou foto do catálogo sai junto, salvo se o cuidador tiver trocado a foto depois.
+
+### Implementação F1–F7
+
+A migração desta feature é `009_medication_ai.sql`. A `008_caregiver_invites.sql` já está na `main` (PR #4). Não há corrida de número com um PR aberto.
+
+Sem `AI_API_KEY`, sem `AI_MODEL` ou com `AI_ENABLED` diferente de `1`, o processo sobe, a captura some da interface e as rotas de análise respondem 404. O restante do app não muda.
+
+Padrões que continuam, nas perguntas que o Altamir não respondeu:
+
+- Vários itens da mesma receita entram juntos (F6). Falha no meio desfaz o que essa confirmação criou.
+- “Por N dias” inclui o dia inicial.
+- Foto de embalagem aparece no catálogo até o prazo de retenção (90 dias). Foto de receita não vira thumbnail.
+- Sem registro na base, o cadastro segue com o que foi lido e os campos oficiais vazios.
+- Classe terapêutica aparece só como dica. `indication` e posologia de referência ficam vazios (F8 não entrou).
+- Nada é gravado em `medications` ou `treatments` sem o POST de confirmação.
+
+Para ligar em produção, no `.env` da VPS: `AI_ENABLED=1`, `AI_API_KEY` da OpenRouter e `AI_MODEL=deepseek/deepseek-v4.1-flash-1017`. O workflow não envia esse arquivo.
+
 ## 14. Perguntas para o Altamir decidir
 
 1. **Receita com vários medicamentos.** A primeira versão útil (F5) cadastra um item, com aviso se houver outros, e a F6 cadastra a lista? Ou a lista é obrigatória já na primeira entrega?
-2. **Quanto tempo a imagem da receita permanece depois do “Cadastrar”.** Apagar no ato (`AI_PRESCRIPTION_RETAIN_DAYS=0`), 24 h, ou 30 dias? O código, sem resposta, fica em 24 h e a produção permanece com a IA desligada.
-3. **Foto de embalagem vira a foto do catálogo?** A recomendação é sim. A de receita nunca vira thumbnail. Confirma os dois?
-4. **Medicamento sem registro** (manipulado, amostra). Cadastrar mesmo assim, só com o que foi lido, é o comportamento desejado?
-5. **Classe terapêutica** pode aparecer como dica na revisão. Ela não deve ser salva em `indication`. Confirma?
-6. **“Por 7 dias”** inclui o dia de início (data fim = início + 6 dias)? A pré-visualização mostra a grade antes de gravar de qualquer forma.
-7. **Tetos.** 30 leituras por dia e US$ 5 estimados por mês servem? O volume real deve ficar muito abaixo.
-8. **PRD.** Na implementação, atualizar a linha que coloca receita fora do MVP, deixando claro que o sistema não prescreve?
-9. **Ligação em produção.** Quem cola `AI_API_KEY` e `AI_MODEL` no `.env` da VPS e em que momento? A sugestão é só depois da F7 revisada, com `AI_ENABLED=1` num deploy que você aprove.
-10. **Bula (F8).** Quer posologia usual citada da bula nesta leva, ou o catálogo segue com posologia de referência vazia até uma leva futura?
+2. **Foto de embalagem vira a foto do catálogo durante a retenção?** A implementação copia a foto da embalagem para o catálogo e apaga essa cópia junto com o arquivo de origem, aos 90 dias. A foto da receita não vira thumbnail. Confirma?
+3. **Medicamento sem registro** (manipulado, amostra). Cadastrar mesmo assim, só com o que foi lido, é o comportamento desejado?
+4. **Classe terapêutica** pode aparecer como dica na revisão. Ela não deve ser salva em `indication`. Confirma?
+5. **“Por 7 dias”** inclui o dia de início (data fim = início + 6 dias)? A pré-visualização mostra a grade antes de gravar de qualquer forma.
+6. **PRD.** Na implementação, atualizar a linha que coloca receita fora do MVP, deixando claro que o sistema não prescreve?
+7. **Ligação em produção.** Quem cola `AI_API_KEY` e `AI_MODEL` no `.env` da VPS e em que momento? A sugestão é só depois da F7 revisada, com `AI_ENABLED=1` num deploy que você aprove.
+8. **Bula (F8).** Quer posologia usual citada da bula nesta leva, ou o catálogo segue com posologia de referência vazia até uma leva futura?
 
 ---
 

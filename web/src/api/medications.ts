@@ -7,6 +7,10 @@ export type Medication = {
   indication: string;
   referencePosology: string;
   usualIntervalHours: number | null;
+  concentration: string;
+  presentation: string;
+  anvisaRegistry: string;
+  catalogOrigin: string;
   hasPhoto: boolean;
   createdAt: string;
   updatedAt: string;
@@ -18,6 +22,9 @@ export type MedicationInput = {
   indication?: string;
   referencePosology?: string;
   usualIntervalHours?: number | null;
+  concentration?: string;
+  presentation?: string;
+  anvisaRegistry?: string;
 };
 
 export async function listMedications(q?: string): Promise<Medication[]> {

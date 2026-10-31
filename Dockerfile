@@ -18,7 +18,7 @@ RUN npm ci --omit=dev --workspace=server --include-workspace-root --no-audit --n
   && npm cache clean --force
 COPY server ./server
 COPY --from=build /app/web/dist ./web/dist
-RUN mkdir -p /app/data/med-photos && chown -R node:node /app
+RUN mkdir -p /app/data/med-photos /app/data/intake-photos && chown -R node:node /app
 USER node
 EXPOSE 8080
 # Node 22 só expõe Temporal com esta flag; a grade de doses depende dela.

@@ -19,6 +19,8 @@ export type Treatment = {
   timesOfDay: string[] | null;
   alarmsEnabled: boolean;
   generatedUntil: string | null;
+  posologyOrigin: string | null;
+  posologyRaw: string | null;
   createdAt: string;
   updatedAt: string;
   patientName?: string;

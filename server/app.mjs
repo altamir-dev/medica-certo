@@ -11,6 +11,7 @@ import { treatmentsRoutes } from './routes/treatments.mjs';
 import { dosesRoutes } from './routes/doses.mjs';
 import { pushRoutes } from './routes/push.mjs';
 import { inviteRoutes } from './routes/invites.mjs';
+import { aiRoutes } from './routes/ai.mjs';
 
 /**
  * HTTP app without listening, migrating, or starting the alarm scheduler.
@@ -34,6 +35,7 @@ export async function buildApp(options = {}) {
   await app.register(dosesRoutes);
   await app.register(pushRoutes);
   await app.register(inviteRoutes);
+  await app.register(aiRoutes);
 
   if (config.isProd && existsSync(config.webDistDir)) {
     await app.register(fastifyStatic, {

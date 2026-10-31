@@ -13,6 +13,7 @@ import { MedicationFormPage } from './pages/MedicationFormPage';
 import { TreatmentFormPage } from './pages/TreatmentFormPage';
 import { TreatmentDetailPage } from './pages/TreatmentDetailPage';
 import { TreatmentGradePage } from './pages/TreatmentGradePage';
+import { MedicationDraftPage } from './pages/MedicationDraftPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 export function App() {
@@ -30,11 +31,19 @@ export function App() {
               <Route path="pacientes/novo" element={<PatientFormPage />} />
               <Route path="pacientes/:id/editar" element={<PatientFormPage />} />
               <Route
+                path="pacientes/:id/tratamentos/por-foto"
+                element={<MedicationDraftPage />}
+              />
+              <Route
                 path="pacientes/:id/tratamentos/novo"
                 element={<TreatmentFormPage />}
               />
               <Route path="pacientes/:id" element={<PatientDetailPage />} />
               <Route path="medicamentos" element={<MedicationsPage />} />
+              <Route
+                path="medicamentos/por-foto"
+                element={<MedicationDraftPage />}
+              />
               <Route
                 path="medicamentos/novo"
                 element={<MedicationFormPage />}

@@ -60,6 +60,7 @@ services:
       <<: *app-env
     volumes:
       - /docker/medica-certo/data/med-photos:/app/data/med-photos
+      - /docker/medica-certo/data/intake-photos:/app/data/intake-photos
     depends_on:
       postgres:
         condition: service_healthy

@@ -163,6 +163,7 @@ O workflow só copia `docker-compose.yml` e `deploy.sh`. Não sobrescreve `.env`
 
 - `/docker/medica-certo/data/postgres`
 - `/docker/medica-certo/data/med-photos` (o script entrega o diretório ao uid `1000`, usuário `node` da imagem)
+- `/docker/medica-certo/data/intake-photos` (fotos temporárias da leitura por IA; o mesmo uid `1000`)
 
 Migrações: `server/migrations/*.sql` rodam num container efêmero antes de recriar o app e de novo no boot (a segunda passagem não refaz o que já entrou em `schema_migrations`). Se a migração falha, o app que já estava no ar não é trocado. Se `/api/health` não voltar `"status":"ok"`, o job falha.
 
