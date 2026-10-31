@@ -357,7 +357,7 @@ Conta de uma foto já reduzida (lado maior 1600 px, JPEG):
 | `openai/gpt-4.1-mini` | US$ 0,40 / US$ 1,60 | ≈ US$ 0,002 | 5–15 s | Sim | `data_collection: deny`, se ainda houver endpoint elegível |
 | `google/gemini-2.5-flash` | US$ 0,30 / US$ 2,50 | ≈ US$ 0,0025 | 6–20 s | Sim | O mesmo ponto de ZDR do Flash-Lite |
 | `anthropic/claude-haiku-4.5` | US$ 1,00 / US$ 5,00 | ≈ US$ 0,006 | 4–12 s | Sim | Em geral elegível a ZDR; confirmar na página do modelo |
-| `openai/gpt-4.1` | US$ 2,00 / US$ 8,00 | ≈ US$ 0,01 | 8–20 s | Sim | Qualidade maior, custo ~10× o Flash pinado |
+| `openai/gpt-4.1` | US$ 2,00 / US$ 8,00 | ≈ US$ 0,01 | 8–20 s | Sim | Qualidade maior, bem acima do preço de tabela do Flash previsto |
 | `typesafe/jev-router` | o do modelo que ele escolher | sem teto | variável | Só se o escolhido tiver visão | Subprocessador muda por pedido |
 | 9router em si | US$ 0 no proxy | o do upstream | soma o hop local | depende do alias | A imagem continua até o provedor final |
 
