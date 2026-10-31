@@ -20,6 +20,7 @@ import {
   assessUsage,
   estimateCostUsd,
   readAiSettings,
+  readingAllowance,
   saoPauloMonthBounds,
 } from './settings.mjs';
 
@@ -102,21 +103,22 @@ export async function countMonthlyReadings(caregiverId, now = new Date()) {
 export async function monthlyQuota(caregiverId) {
   const settings = readAiSettings();
   const used = await countMonthlyReadings(caregiverId);
+  const limit = readingAllowance(settings);
   return {
-    limit: settings.monthlyLimit,
+    limit,
     used,
-    remaining: Math.max(0, settings.monthlyLimit - used),
-    reached: used >= settings.monthlyLimit,
+    remaining: Math.max(0, limit - used),
+    reached: used >= limit,
   };
 }
 
 /**
- * @param {ReturnType<typeof readAiSettings>} settings
+ * @param {ReturnType<typeof readAiSettings>} _settings
  * @param {string} caregiverId
  */
-async function usageSnapshot(settings, caregiverId) {
-  const used = await countMonthlyReadings(caregiverId);
-  return assessUsage({ used, limit: settings.monthlyLimit });
+async function usageSnapshot(_settings, caregiverId) {
+  const quota = await monthlyQuota(caregiverId);
+  return assessUsage({ used: quota.used, limit: quota.limit });
 }
 
 /**

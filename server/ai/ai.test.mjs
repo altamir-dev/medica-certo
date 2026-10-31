@@ -10,7 +10,7 @@ import {
   sanitizeModelPayload,
 } from './extract.mjs';
 import { readWithOneRetry } from './openrouter.mjs';
-import { assessUsage, estimateCostUsd, readAiSettings, saoPauloMonthBounds } from './settings.mjs';
+import { assessUsage, estimateCostUsd, readAiSettings, readingAllowance, saoPauloMonthBounds } from './settings.mjs';
 
 describe('readAiSettings', () => {
   it('fica desligada sem chave, sem modelo ou sem AI_ENABLED', () => {
@@ -47,6 +47,12 @@ describe('readAiSettings', () => {
 });
 
 describe('assessUsage e mês de São Paulo', () => {
+  it('soma créditos extras no mesmo ponto, sem espalhar o 5', () => {
+    assert.equal(readingAllowance({ monthlyLimit: 5 }), 5);
+    assert.equal(readingAllowance({ monthlyLimit: 5 }, { bonusCredits: 3 }), 8);
+    assert.equal(assessUsage({ used: 6, limit: readingAllowance({ monthlyLimit: 5 }, { bonusCredits: 3 }) }).ok, true);
+  });
+
   it('bloqueia a partir da 5ª leitura do mês', () => {
     assert.equal(assessUsage({ used: 5, limit: 5 }).code, 'RATE_LIMITED');
     assert.match(assessUsage({ used: 5, limit: 5 }).message ?? '', /5 leituras/);

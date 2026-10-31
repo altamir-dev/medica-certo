@@ -12,7 +12,7 @@ import {
   monthlyQuota,
   recordAiConsent,
 } from '../ai/drafts.mjs';
-import { quotaMessage, readAiSettings } from '../ai/settings.mjs';
+import { quotaMessage, readAiSettings, readingAllowance } from '../ai/settings.mjs';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -146,7 +146,7 @@ export async function aiRoutes(app) {
           reply,
           429,
           'RATE_LIMITED',
-          created.message ?? quotaMessage(readAiSettings().monthlyLimit),
+          created.message ?? quotaMessage(readingAllowance(readAiSettings())),
         );
       }
       if (created.code === 'AI_BUDGET') {
@@ -154,7 +154,7 @@ export async function aiRoutes(app) {
           reply,
           429,
           'RATE_LIMITED',
-          created.message ?? quotaMessage(readAiSettings().monthlyLimit),
+          created.message ?? quotaMessage(readingAllowance(readAiSettings())),
         );
       }
       if (created.code === 'CONFLICT') {

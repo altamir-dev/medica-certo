@@ -301,7 +301,7 @@ export function MedicationDraftPage() {
           <form className="patients-form" onSubmit={onAnalyze}>
             {quotaReached ? (
               <p className="patients-alert" role="status">
-                Você já usou as {status?.quota?.limit ?? 5} leituras deste mês. Dá
+                Você já usou as {status?.quota?.limit} leituras deste mês. Dá
                 para cadastrar o medicamento à mão.
               </p>
             ) : null}

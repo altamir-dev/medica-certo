@@ -100,6 +100,19 @@ export function saoPauloMonthBounds(now = new Date()) {
 }
 
 /**
+ * Teto do mês = AI_MONTHLY_LIMIT + créditos extras ainda não gastos.
+ * A venda de créditos é outra feature. Hoje bonusCredits é 0.
+ * Quando existir compra, o saldo entra só neste argumento.
+ * @param {{ monthlyLimit: number }} settings
+ * @param {{ bonusCredits?: number }} [extra]
+ */
+export function readingAllowance(settings, extra = {}) {
+  const bonus = Number(extra.bonusCredits ?? 0);
+  const credits = Number.isFinite(bonus) && bonus > 0 ? Math.trunc(bonus) : 0;
+  return settings.monthlyLimit + credits;
+}
+
+/**
  * @param {number} limit
  */
 export function quotaMessage(limit) {
