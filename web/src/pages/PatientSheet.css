@@ -86,7 +86,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  min-width: 72px;
+  min-width: 120px;
   background: color-mix(in srgb, var(--paper) 88%, var(--ink) 12%);
 }
 
@@ -127,43 +127,66 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 72px;
+  min-width: 120px;
+  padding: 6px;
 }
 
-.cal-chip {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  border: 2px solid var(--chip-color);
+/* Mini-grid 3×10 dentro da célula do horário */
+.cal-cell-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols, 10), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--grid-rows, 3), minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  aspect-ratio: 10 / 3.2;
+  max-height: 56px;
+}
+
+.cal-subcell {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 3px;
   background: transparent;
   padding: 0;
+  box-sizing: border-box;
+}
+
+.cal-subcell--med {
+  border: 2px solid var(--chip-color);
+  background: transparent;
   cursor: pointer;
-  position: relative;
-  flex: 0 0 auto;
   transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease;
+    transform 0.1s ease,
+    box-shadow 0.1s ease,
+    opacity 0.1s ease;
 }
 
-.cal-chip:hover {
-  transform: scale(1.08);
+.cal-subcell--med:hover {
+  transform: scale(1.12);
+  z-index: 1;
 }
 
-.cal-chip--filled {
+.cal-subcell--filled {
   background: var(--chip-color);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
-.cal-chip--next {
+.cal-subcell--next {
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--chip-color) 45%, transparent),
-    0 0 12px color-mix(in srgb, var(--chip-color) 35%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--chip-color) 55%, transparent),
+    0 0 8px color-mix(in srgb, var(--chip-color) 40%, transparent);
 }
 
-.cal-chip--overdue:not(.cal-chip--filled) {
+.cal-subcell--overdue:not(.cal-subcell--filled) {
   border-style: dashed;
+}
+
+.cal-subcell--dim {
+  opacity: 0.22;
 }
 
 .cal-legend {

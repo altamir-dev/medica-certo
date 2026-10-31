@@ -99,6 +99,10 @@ declare const Temporal: {
 
 type ModalMode = 'register' | 'view' | 'edit';
 
+const GRID_ROWS = 3;
+const GRID_COLS = 10;
+const GRID_CELLS = GRID_ROWS * GRID_COLS;
+
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -144,7 +148,17 @@ export function PatientDetailPage() {
 
   const gridTemplate = useMemo(() => {
     if (!sheet) return '';
-    return `88px repeat(${Math.max(sheet.slots.length, 1)}, minmax(72px, 1fr))`;
+    // Célula do horário precisa caber mini-grid 3×10
+    return `88px repeat(${Math.max(sheet.slots.length, 1)}, minmax(120px, 1fr))`;
+  }, [sheet]);
+
+  /** Posição fixa no mini-grid por tratamento (ordem das abas). */
+  const medIndexByTreatment = useMemo(() => {
+    const map = new Map<string, number>();
+    sheet?.medications.forEach((med, idx) => {
+      if (idx < GRID_CELLS) map.set(med.treatmentId, idx);
+    });
+    return map;
   }, [sheet]);
 
   function openChip(chip: SheetChip) {
@@ -348,42 +362,71 @@ export function PatientDetailPage() {
                       </div>
                       {sheet.slots.map((slot) => {
                         const key = `${day.ymd}|${slot}`;
-                        const chips = (sheet.byDaySlot[key] ?? []).filter(
-                          (c) =>
-                            focusTreatmentId === null ||
-                            c.treatmentId === focusTreatmentId,
-                        );
+                        const chipsHere = sheet.byDaySlot[key] ?? [];
+                        /** Índice do mini-grid → chip (só medicamentos alocados neste horário). */
+                        const chipByIndex = new Map<number, SheetChip>();
+                        for (const chip of chipsHere) {
+                          const idx = medIndexByTreatment.get(chip.treatmentId);
+                          if (idx === undefined) continue;
+                          chipByIndex.set(idx, chip);
+                        }
                         return (
                           <div
                             key={key}
                             className={`cal-cell${day.isToday ? ' is-today' : ''}`}
                           >
-                            {chips.map((chip) => {
-                              const filled = chip.status === 'administered';
-                              const classes = [
-                                'cal-chip',
-                                filled ? 'cal-chip--filled' : '',
-                                chip.isNext ? 'cal-chip--next' : '',
-                                chip.isOverdue ? 'cal-chip--overdue' : '',
-                              ]
-                                .filter(Boolean)
-                                .join(' ');
-                              return (
-                                <button
-                                  key={chip.doseId}
-                                  type="button"
-                                  className={classes}
-                                  style={
-                                    {
-                                      ['--chip-color']: chip.color,
-                                    } as CSSProperties
-                                  }
-                                  title={`${chip.medicationName} · previsto ${formatScheduledLabel(chip.scheduledAt)}${filled && chip.administeredAt ? ` · dado às ${formatStamp(chip.administeredAt)}` : ''}`}
-                                  aria-label={`${chip.medicationName} às ${slot}`}
-                                  onClick={() => openChip(chip)}
-                                />
-                              );
-                            })}
+                            <div
+                              className="cal-cell-grid"
+                              style={
+                                {
+                                  ['--grid-rows']: GRID_ROWS,
+                                  ['--grid-cols']: GRID_COLS,
+                                } as CSSProperties
+                              }
+                              aria-label={`Doses às ${slot}`}
+                            >
+                              {Array.from({ length: GRID_CELLS }, (_, idx) => {
+                                const chip = chipByIndex.get(idx);
+                                if (!chip) {
+                                  return (
+                                    <span
+                                      key={idx}
+                                      className="cal-subcell"
+                                      aria-hidden="true"
+                                    />
+                                  );
+                                }
+                                const focused =
+                                  focusTreatmentId === null ||
+                                  focusTreatmentId === chip.treatmentId;
+                                const filled = chip.status === 'administered';
+                                const classes = [
+                                  'cal-subcell',
+                                  'cal-subcell--med',
+                                  filled ? 'cal-subcell--filled' : '',
+                                  chip.isNext ? 'cal-subcell--next' : '',
+                                  chip.isOverdue ? 'cal-subcell--overdue' : '',
+                                  focused ? '' : 'cal-subcell--dim',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' ');
+                                return (
+                                  <button
+                                    key={chip.doseId}
+                                    type="button"
+                                    className={classes}
+                                    style={
+                                      {
+                                        ['--chip-color']: chip.color,
+                                      } as CSSProperties
+                                    }
+                                    title={`${chip.medicationName} · previsto ${formatScheduledLabel(chip.scheduledAt)}${filled && chip.administeredAt ? ` · dado às ${formatStamp(chip.administeredAt)}` : ''}`}
+                                    aria-label={`${chip.medicationName} às ${slot}`}
+                                    onClick={() => openChip(chip)}
+                                  />
+                                );
+                              })}
+                            </div>
                           </div>
                         );
                       })}
@@ -401,7 +444,9 @@ export function PatientDetailPage() {
                 <i className="cal-legend__swatch cal-legend__swatch--filled" />{' '}
                 Preenchido = administrado
               </span>
-              <span>Brilho = próxima dose · clique no quadrado</span>
+              <span>
+                Mini-grid 3×10: cada remédio tem posição fixa; vazio = sem dose
+              </span>
             </div>
           </>
         )}
