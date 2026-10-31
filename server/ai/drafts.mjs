@@ -349,8 +349,8 @@ export async function processDraft(caregiverId, draftId, deps = {}) {
   );
   await getPool().query(
     `UPDATE ai_usage_daily
-     SET estimated_cost_usd = estimated_cost_usd + $3
-     WHERE caregiver_id = $1 AND usage_date = CURRENT_DATE`,
+     SET estimated_cost_usd = estimated_cost_usd + $2::numeric
+     WHERE caregiver_id = $1::uuid AND usage_date = CURRENT_DATE`,
     [caregiverId, cost],
   );
   void cost;
@@ -509,7 +509,8 @@ export async function confirmDraft(caregiverId, draftId, body) {
         name: item.name,
         activeIngredient: item.activeIngredient,
         indication: '',
-        referencePosology: '',
+        referencePosology:
+          typeof item.referencePosology === 'string' ? item.referencePosology : '',
         concentration: item.concentration,
         presentation: item.presentation,
         anvisaRegistry: item.anvisaRegistry,

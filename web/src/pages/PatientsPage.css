@@ -174,6 +174,15 @@
   border-color: var(--danger);
 }
 
+.patients-input[readonly] {
+  background: color-mix(in srgb, var(--paper) 85%, var(--ink) 15%);
+}
+
+.patients-field__hint a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .patients-field__error {
   font-size: var(--font-xxxs);
   font-weight: 500;

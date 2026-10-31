@@ -74,7 +74,7 @@ export function concentrationRelation(imageConcentration, apresentacao) {
  */
 export function rankAnvisaCandidates(rows, query) {
   const name = normalizeDrugText(query.name);
-  const ranked = rows
+  const matched = rows
     .map((row) => {
       const produto = normalizeDrugText(row.produto ?? '');
       const substancia = normalizeDrugText(row.substancia ?? '');
@@ -97,16 +97,35 @@ export function rankAnvisaCandidates(rows, query) {
         concentrationRelation: relation,
       };
     })
-    .filter((row) => row.score >= 0.55)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .filter((row) => row.score >= 0.55);
 
-  const top = ranked[0];
+  matched.sort(
+    (a, b) =>
+      b.score - a.score ||
+      relationPreference(b.concentrationRelation) -
+        relationPreference(a.concentrationRelation),
+  );
+
+  // A base sem apresentação (TA_CONSULTA_MEDICAMENTOS) não tem concentração
+  // para concordar. Só a concentração conflitante impede a pré-seleção.
   const preselect =
-    top && top.score >= 0.85 && top.concentrationRelation === 'agree'
-      ? top
-      : null;
-  return { candidates: ranked, preselect };
+    matched.find(
+      (row) => row.score >= 0.85 && row.concentrationRelation !== 'conflict',
+    ) ?? null;
+  let candidates = matched.slice(0, 5);
+  if (preselect && !candidates.includes(preselect)) {
+    candidates = [preselect, ...candidates.slice(0, 4)];
+  }
+  return { candidates, preselect };
+}
+
+/**
+ * @param {string} relation
+ */
+function relationPreference(relation) {
+  if (relation === 'agree') return 2;
+  if (relation === 'conflict') return 0;
+  return 1;
 }
 
 /**
@@ -139,9 +158,12 @@ export function applyAnvisaMatch(item, ranked) {
   }
   const chosen = ranked.preselect;
   item.activeIngredient = chosen.substancia || item.activeIngredient;
-  item.concentration = concentrationLabel(chosen.apresentacao) || item.concentration;
-  item.concentrationSource = 'anvisa_cmed';
-  item.presentation = chosen.apresentacao || item.presentation;
+  const fromRow = concentrationLabel(chosen.apresentacao);
+  if (fromRow) {
+    item.concentration = fromRow;
+    item.concentrationSource = 'anvisa_cmed';
+  }
+  if (chosen.apresentacao) item.presentation = chosen.apresentacao;
   item.anvisaRegistry = chosen.registro;
   item.classeTerapeutica = chosen.classeTerapeutica;
   item.nameBand = 'alta';

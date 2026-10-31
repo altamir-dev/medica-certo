@@ -388,6 +388,71 @@ describe('rankAnvisaCandidates', () => {
     assert.equal(item.anvisaRegistry, '');
     assert.equal(item.concentration, '');
   });
+
+  it('pré-seleciona CONCERTA e NUSIRA mesmo sem concentração na base', () => {
+    const csv = [
+      'NO_PRODUTO;SUBSTANCIAS_MEDICAMENTOS;NU_REGISTRO_PRODUTO;NO_RAZAO_SOCIAL_EMPRESA;VALIDADE_SITUACAO;COMPLEMENTO',
+      'CONCERTA;cloridrato de metilfenidato;112363357;JANSSEN-CILAG FARMACÊUTICA LTDA;Inativo;',
+      'CONCERTA;cloridrato de metilfenidato;112363357;JANSSEN-CILAG FARMACÊUTICA LTDA;Ativo;',
+      'NUSIRA;cloridrato de tramadol, diclofenaco sódico;122140132;ADIUM S.A.;Ativo;',
+    ].join('\n');
+    const parsed = parseAnvisaCsv(csv, normalizeDrugText);
+    assert.equal(parsed.filter((row) => row.produto === 'CONCERTA').length, 1);
+    assert.equal(
+      parsed.find((row) => row.produto === 'NUSIRA')?.registro,
+      '122140132',
+    );
+    assert.equal(normalizeDrugText('Núsira'), normalizeDrugText('NUSIRA'));
+    assert.equal(normalizeDrugText('Diclofenaco Sódico'), 'diclofenaco sodico');
+
+    const rows = parsed.map((row) => ({
+      produto: row.produto,
+      substancia: row.substancia,
+      apresentacao: row.apresentacao,
+      registro: row.registro,
+      laboratorio: row.laboratorio,
+    }));
+
+    const concerta = rankAnvisaCandidates(rows, {
+      name: 'Concerta',
+      concentration: '18 mg',
+    });
+    assert.equal(concerta.preselect?.registro, '112363357');
+    assert.equal(concerta.preselect?.concentrationRelation, 'unknown');
+    const item = {
+      name: 'CONCERTA',
+      nameConfidence: 0.9,
+      nameBand: 'alta',
+      activeIngredient: 'cloridrato de metilfenidato',
+      concentration: '18 mg',
+      concentrationSource: 'image',
+      presentation: 'comprimidos revestidos de liberação prolongada',
+      anvisaRegistry: '',
+      classeTerapeutica: '',
+      candidates: [],
+    };
+    applyAnvisaMatch(item, concerta);
+    assert.equal(item.anvisaRegistry, '112363357');
+    assert.equal(item.activeIngredient, 'cloridrato de metilfenidato');
+    assert.equal(item.concentration, '18 mg');
+    assert.equal(item.concentrationSource, 'image');
+    assert.equal(item.nameBand, 'alta');
+    assert.equal(
+      item.presentation,
+      'comprimidos revestidos de liberação prolongada',
+    );
+
+    const nusira = rankAnvisaCandidates(rows, {
+      name: 'Núsira',
+      concentration: '25 mg + 25 mg',
+    });
+    assert.equal(nusira.preselect?.registro, '122140132');
+    const bySubstance = rankAnvisaCandidates(rows, {
+      name: 'Cloridrato de Tramadol, Diclofenaco Sódico',
+      concentration: '25 mg',
+    });
+    assert.equal(bySubstance.preselect?.registro, '122140132');
+  });
 });
 
 describe('readWithOneRetry', () => {

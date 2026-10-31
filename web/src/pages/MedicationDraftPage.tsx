@@ -25,6 +25,7 @@ type ReviewItem = ConfirmItem & {
   rawText: string;
   candidates: DraftItem['candidates'];
   classeTerapeutica: string;
+  registryFromMatch: boolean;
 };
 
 function bandLabel(band: string) {
@@ -92,6 +93,8 @@ function toReview(item: DraftItem, withTreatment: boolean): ReviewItem {
     concentration: item.concentration,
     presentation: item.presentation,
     anvisaRegistry: item.anvisaRegistry,
+    referencePosology: '',
+    registryFromMatch: Boolean(item.anvisaRegistry),
     createTreatment: withTreatment && Boolean(item.schedule.doseQuantity || item.schedule.rawText),
     doseQuantity: item.schedule.doseQuantity,
     route: item.schedule.route,
@@ -124,6 +127,8 @@ export function MedicationDraftPage() {
   const [kind, setKind] = useState<string | null>(null);
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [errorItemIndex, setErrorItemIndex] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [duplicate, setDuplicate] = useState<{ index: number; existingId: string } | null>(null);
 
@@ -171,10 +176,21 @@ export function MedicationDraftPage() {
     return `A imagem é enviada à ${status.providerName}, modelo ${status.model}. Receita pode mostrar nome, documento e CRM, e essa imagem segue junto. Nada é cadastrado antes de você confirmar. A posologia sugerida não substitui o médico nem a bula.`;
   }, [status]);
 
+  function errorFor(index: number, field: string) {
+    if (errorItemIndex !== index) return undefined;
+    return fieldErrors[field];
+  }
+
   function patchItem(index: number, patch: Partial<ReviewItem>) {
     setItems((current) =>
       current.map((item, i) => (i === index ? { ...item, ...patch } : item)),
     );
+    setFieldErrors((current) => {
+      if (errorItemIndex !== index) return current;
+      const next = { ...current };
+      for (const key of Object.keys(patch)) delete next[key];
+      return next;
+    });
   }
 
   async function onAnalyze(event: FormEvent) {
@@ -213,11 +229,14 @@ export function MedicationDraftPage() {
   async function confirmItems(source: ReviewItem[]) {
     if (!draftId) return;
     setError(null);
+    setFieldErrors({});
+    setErrorItemIndex(null);
     setDuplicate(null);
     setSubmitting(true);
     try {
       const payload = source.map((item) => ({
         ...item,
+        createTreatment: Boolean(patientId && item.doseQuantity.trim()),
         startsAt: item.startsAt.includes('T')
           ? datetimeLocalToIso(item.startsAt)
           : item.startsAt,
@@ -226,8 +245,15 @@ export function MedicationDraftPage() {
       const treatmentId = result.treatmentIds[0];
       const medicationId = result.medicationIds[0];
       if (treatmentId) navigate(`/tratamentos/${treatmentId}`, { replace: true });
-      else if (medicationId) navigate(`/medicamentos/${medicationId}`, { replace: true });
-      else navigate(backHref, { replace: true });
+      else if (medicationId) {
+        navigate(`/medicamentos/${medicationId}`, {
+          replace: true,
+          state:
+            kind === 'package'
+              ? { offerTreatment: true, patientId: patientId ?? null }
+              : undefined,
+        });
+      } else navigate(backHref, { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'DUPLICATE_NAME') {
         setDuplicate({
@@ -235,6 +261,33 @@ export function MedicationDraftPage() {
           existingId: err.fields?.existingId ?? '',
         });
         setError(err.message);
+      } else if (err instanceof ApiError && err.fields) {
+        const { itemIndex, ...rest } = err.fields;
+        const index = itemIndex != null ? Number(itemIndex) : 0;
+        const shown = new Set([
+          'name',
+          'activeIngredient',
+          'concentration',
+          'presentation',
+          'anvisaRegistry',
+          'referencePosology',
+          'doseQuantity',
+          'route',
+          'intervalHours',
+          'timesOfDay',
+          'startsAt',
+          'endsOn',
+        ]);
+        const unmapped = Object.entries(rest).filter(([key]) => !shown.has(key));
+        setErrorItemIndex(Number.isFinite(index) ? index : 0);
+        setFieldErrors(rest);
+        setError(
+          unmapped.length > 0
+            ? unmapped.map(([, message]) => message).join(' ')
+            : Object.keys(rest).length > 0
+              ? null
+              : err.message,
+        );
       } else {
         setError(err instanceof ApiError ? err.message : 'Não foi possível cadastrar.');
       }
@@ -387,20 +440,32 @@ export function MedicationDraftPage() {
                 <label className="patients-field">
                   <span>Nome · {bandLabel(item.nameBand)} · lido na foto</span>
                   <input
-                    className="patients-input"
+                    className={`patients-input${errorFor(index, 'name') ? ' is-error' : ''}`}
                     value={item.name}
+                    aria-invalid={Boolean(errorFor(index, 'name')) || undefined}
                     onChange={(e) => patchItem(index, { name: e.target.value })}
                   />
+                  {errorFor(index, 'name') ? (
+                    <span className="patients-field__error">{errorFor(index, 'name')}</span>
+                  ) : null}
                 </label>
                 <label className="patients-field">
                   <span>Princípio ativo</span>
                   <input
-                    className="patients-input"
+                    className={`patients-input${
+                      errorFor(index, 'activeIngredient') ? ' is-error' : ''
+                    }`}
                     value={item.activeIngredient}
+                    aria-invalid={Boolean(errorFor(index, 'activeIngredient')) || undefined}
                     onChange={(e) =>
                       patchItem(index, { activeIngredient: e.target.value })
                     }
                   />
+                  {errorFor(index, 'activeIngredient') ? (
+                    <span className="patients-field__error">
+                      {errorFor(index, 'activeIngredient')}
+                    </span>
+                  ) : null}
                 </label>
                 <label className="patients-field">
                   <span>
@@ -412,38 +477,106 @@ export function MedicationDraftPage() {
                         : ''}
                   </span>
                   <input
-                    className="patients-input"
+                    className={`patients-input${
+                      errorFor(index, 'concentration') ? ' is-error' : ''
+                    }`}
                     value={item.concentration}
+                    aria-invalid={Boolean(errorFor(index, 'concentration')) || undefined}
                     onChange={(e) =>
                       patchItem(index, { concentration: e.target.value })
                     }
                   />
+                  {errorFor(index, 'concentration') ? (
+                    <span className="patients-field__error">
+                      {errorFor(index, 'concentration')}
+                    </span>
+                  ) : null}
                 </label>
                 <label className="patients-field">
                   <span>Apresentação</span>
                   <input
-                    className="patients-input"
+                    className={`patients-input${
+                      errorFor(index, 'presentation') ? ' is-error' : ''
+                    }`}
                     value={item.presentation}
+                    aria-invalid={Boolean(errorFor(index, 'presentation')) || undefined}
                     onChange={(e) => patchItem(index, { presentation: e.target.value })}
                   />
+                  {errorFor(index, 'presentation') ? (
+                    <span className="patients-field__error">
+                      {errorFor(index, 'presentation')}
+                    </span>
+                  ) : null}
                 </label>
                 <label className="patients-field">
-                  <span>Registro</span>
+                  <span>Registro Anvisa</span>
                   <input
-                    className="patients-input"
+                    className={`patients-input${
+                      errorFor(index, 'anvisaRegistry') ? ' is-error' : ''
+                    }`}
                     value={item.anvisaRegistry}
+                    readOnly={item.registryFromMatch}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="número Anvisa, 9 ou 13 dígitos, opcional"
+                    aria-invalid={Boolean(errorFor(index, 'anvisaRegistry')) || undefined}
                     onChange={(e) =>
                       patchItem(index, { anvisaRegistry: e.target.value })
                     }
                   />
+                  {errorFor(index, 'anvisaRegistry') ? (
+                    <span className="patients-field__error">
+                      {errorFor(index, 'anvisaRegistry')}
+                    </span>
+                  ) : (
+                    <span className="patients-field__hint">
+                      {item.registryFromMatch
+                        ? 'Preenchido pela base da Anvisa. Número de 9 ou 13 dígitos.'
+                        : 'Número Anvisa, 9 ou 13 dígitos, opcional. Não é a posologia.'}
+                    </span>
+                  )}
                 </label>
+                {kind === 'package' ? (
+                  <label className="patients-field">
+                    <span>Posologia</span>
+                    <input
+                      className={`patients-input${
+                        errorFor(index, 'referencePosology') ? ' is-error' : ''
+                      }`}
+                      value={item.referencePosology}
+                      placeholder="Ex.: 1 comprimido ao dia"
+                      aria-invalid={
+                        Boolean(errorFor(index, 'referencePosology')) || undefined
+                      }
+                      onChange={(e) =>
+                        patchItem(index, { referencePosology: e.target.value })
+                      }
+                    />
+                    {errorFor(index, 'referencePosology') ? (
+                      <span className="patients-field__error">
+                        {errorFor(index, 'referencePosology')}
+                      </span>
+                    ) : patientId ? (
+                      <span className="patients-field__hint">
+                        É aqui que entra a dose, por exemplo “1 comprimido ao dia”.
+                        Os horários do tratamento ficam nos campos abaixo.
+                      </span>
+                    ) : (
+                      <span className="patients-field__hint">
+                        É aqui que entra a dose, por exemplo “1 comprimido ao dia”.
+                        O registro Anvisa é só o número do produto. Depois de
+                        cadastrar, crie o tratamento no paciente.
+                      </span>
+                    )}
+                  </label>
+                ) : null}
                 {item.classeTerapeutica ? (
                   <p className="patients-field__hint">
                     Classe na Anvisa: {item.classeTerapeutica}. Isso não é a indicação
                     da bula e não será gravado como indicação.
                   </p>
                 ) : null}
-                {item.candidates.length > 1 ? (
+                {item.candidates.length > 0 ? (
                   <label className="patients-field">
                     <span>Candidatos na base</span>
                     <select
@@ -454,15 +587,23 @@ export function MedicationDraftPage() {
                           (row) => row.registro === e.target.value,
                         );
                         if (!chosen) {
-                          patchItem(index, { anvisaRegistry: '' });
+                          patchItem(index, {
+                            anvisaRegistry: '',
+                            registryFromMatch: false,
+                          });
                           return;
                         }
                         patchItem(index, {
                           anvisaRegistry: chosen.registro,
-                          activeIngredient: chosen.substancia,
-                          presentation: chosen.apresentacao,
+                          activeIngredient: chosen.substancia || item.activeIngredient,
+                          ...(chosen.apresentacao
+                            ? {
+                                presentation: chosen.apresentacao,
+                                concentrationSource: 'anvisa_cmed' as const,
+                              }
+                            : {}),
                           classeTerapeutica: chosen.classeTerapeutica,
-                          concentrationSource: 'anvisa_cmed',
+                          registryFromMatch: true,
                         });
                       }}
                     >
@@ -480,21 +621,38 @@ export function MedicationDraftPage() {
                 </p>
                 {patientId ? (
                   <>
+                    {kind === 'package' ? (
+                      <p className="patients-field__hint">Posologia do tratamento</p>
+                    ) : null}
                     <label className="patients-field">
-                      <span>Quantidade da dose · {bandLabel(item.scheduleBand)}</span>
+                      <span>
+                        {kind === 'package'
+                          ? 'Posologia · quantidade da dose'
+                          : `Quantidade da dose · ${bandLabel(item.scheduleBand)}`}
+                      </span>
                       <input
-                        className="patients-input"
+                        className={`patients-input${
+                          errorFor(index, 'doseQuantity') ? ' is-error' : ''
+                        }`}
                         value={item.doseQuantity}
+                        placeholder={kind === 'package' ? 'Ex.: 1 comprimido ao dia' : undefined}
+                        aria-invalid={Boolean(errorFor(index, 'doseQuantity')) || undefined}
                         onChange={(e) =>
                           patchItem(index, { doseQuantity: e.target.value })
                         }
                       />
+                      {errorFor(index, 'doseQuantity') ? (
+                        <span className="patients-field__error">
+                          {errorFor(index, 'doseQuantity')}
+                        </span>
+                      ) : null}
                     </label>
                     <label className="patients-field">
                       <span>Via</span>
                       <select
-                        className="patients-input"
+                        className={`patients-input${errorFor(index, 'route') ? ' is-error' : ''}`}
                         value={item.route}
+                        aria-invalid={Boolean(errorFor(index, 'route')) || undefined}
                         onChange={(e) => patchItem(index, { route: e.target.value })}
                       >
                         <option value="">Escolha</option>
@@ -504,6 +662,11 @@ export function MedicationDraftPage() {
                           </option>
                         ))}
                       </select>
+                      {errorFor(index, 'route') ? (
+                        <span className="patients-field__error">
+                          {errorFor(index, 'route')}
+                        </span>
+                      ) : null}
                     </label>
                     <label className="patients-field">
                       <span>Esquema</span>
@@ -522,11 +685,14 @@ export function MedicationDraftPage() {
                       <label className="patients-field">
                         <span>Intervalo (horas)</span>
                         <input
-                          className="patients-input"
+                          className={`patients-input${
+                            errorFor(index, 'intervalHours') ? ' is-error' : ''
+                          }`}
                           type="number"
                           min={1}
                           max={168}
                           value={item.intervalHours ?? ''}
+                          aria-invalid={Boolean(errorFor(index, 'intervalHours')) || undefined}
                           onChange={(e) =>
                             patchItem(index, {
                               intervalHours: e.target.value
@@ -535,13 +701,21 @@ export function MedicationDraftPage() {
                             })
                           }
                         />
+                        {errorFor(index, 'intervalHours') ? (
+                          <span className="patients-field__error">
+                            {errorFor(index, 'intervalHours')}
+                          </span>
+                        ) : null}
                       </label>
                     ) : (
                       <label className="patients-field">
                         <span>Horários (HH:MM separados por vírgula)</span>
                         <input
-                          className="patients-input"
+                          className={`patients-input${
+                            errorFor(index, 'timesOfDay') ? ' is-error' : ''
+                          }`}
                           value={item.timesOfDay.join(', ')}
+                          aria-invalid={Boolean(errorFor(index, 'timesOfDay')) || undefined}
                           onChange={(e) =>
                             patchItem(index, {
                               timesOfDay: e.target.value
@@ -551,27 +725,48 @@ export function MedicationDraftPage() {
                             })
                           }
                         />
+                        {errorFor(index, 'timesOfDay') ? (
+                          <span className="patients-field__error">
+                            {errorFor(index, 'timesOfDay')}
+                          </span>
+                        ) : null}
                       </label>
                     )}
                     <label className="patients-field">
                       <span>Início</span>
                       <input
-                        className="patients-input"
+                        className={`patients-input${
+                          errorFor(index, 'startsAt') ? ' is-error' : ''
+                        }`}
                         type="datetime-local"
                         value={item.startsAt}
+                        aria-invalid={Boolean(errorFor(index, 'startsAt')) || undefined}
                         onChange={(e) => patchItem(index, { startsAt: e.target.value })}
                       />
+                      {errorFor(index, 'startsAt') ? (
+                        <span className="patients-field__error">
+                          {errorFor(index, 'startsAt')}
+                        </span>
+                      ) : null}
                     </label>
                     <label className="patients-field">
                       <span>Fim (vazio = contínuo)</span>
                       <input
-                        className="patients-input"
+                        className={`patients-input${
+                          errorFor(index, 'endsOn') ? ' is-error' : ''
+                        }`}
+                        aria-invalid={Boolean(errorFor(index, 'endsOn')) || undefined}
                         type="date"
                         value={item.endsOn ?? ''}
                         onChange={(e) =>
                           patchItem(index, { endsOn: e.target.value || null })
                         }
                       />
+                      {errorFor(index, 'endsOn') ? (
+                        <span className="patients-field__error">
+                          {errorFor(index, 'endsOn')}
+                        </span>
+                      ) : null}
                     </label>
                     {item.disagreement ? (
                       <p className="patients-alert" role="status">
@@ -641,6 +836,11 @@ export function MedicationDraftPage() {
               >
                 Descartar
               </button>
+              {kind === 'package' && !patientId ? (
+                <Link to="/pacientes" className="patients-btn patients-btn--secondary">
+                  Criar o tratamento depois de cadastrar
+                </Link>
+              ) : null}
             </div>
           </div>
         ) : null}
