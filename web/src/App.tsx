@@ -6,6 +6,8 @@ import { PlaceholderPage } from './pages/PlaceholderPage';
 import { LoginPage } from './pages/LoginPage';
 import { PatientsPage } from './pages/PatientsPage';
 import { PatientFormPage } from './pages/PatientFormPage';
+import { MedicationsPage } from './pages/MedicationsPage';
+import { MedicationFormPage } from './pages/MedicationFormPage';
 
 export function App() {
   return (
@@ -21,7 +23,7 @@ export function App() {
                 element={
                   <PlaceholderPage
                     title="Bem-vindo ao Medica Certo"
-                    description="Você está autenticado. Cadastre pacientes em Pacientes; medicamentos entram na PR4."
+                    description="Você está autenticado. Cadastre pacientes e medicamentos; tratamentos entram na PR5."
                     showHealth
                   />
                 }
@@ -29,14 +31,14 @@ export function App() {
               <Route path="pacientes" element={<PatientsPage />} />
               <Route path="pacientes/novo" element={<PatientFormPage />} />
               <Route path="pacientes/:id" element={<PatientFormPage />} />
+              <Route path="medicamentos" element={<MedicationsPage />} />
               <Route
-                path="medicamentos"
-                element={
-                  <PlaceholderPage
-                    title="Medicamentos"
-                    description="Catálogo de medicamentos entra na PR4."
-                  />
-                }
+                path="medicamentos/novo"
+                element={<MedicationFormPage />}
+              />
+              <Route
+                path="medicamentos/:id"
+                element={<MedicationFormPage />}
               />
               <Route
                 path="configuracoes"

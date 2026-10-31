@@ -9,6 +9,7 @@ import { authGuardPlugin } from './plugins/auth-guard.mjs';
 import { healthRoutes } from './routes/health.mjs';
 import { authRoutes } from './routes/auth.mjs';
 import { patientsRoutes } from './routes/patients.mjs';
+import { medicationsRoutes } from './routes/medications.mjs';
 
 const app = Fastify({
   logger: {
@@ -29,6 +30,7 @@ await app.register(authGuardPlugin);
 await app.register(healthRoutes);
 await app.register(authRoutes);
 await app.register(patientsRoutes);
+await app.register(medicationsRoutes);
 
 if (config.isProd && existsSync(config.webDistDir)) {
   await app.register(fastifyStatic, {

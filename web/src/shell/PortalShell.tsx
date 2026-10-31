@@ -29,6 +29,8 @@ function titleForPath(pathname: string) {
   if (pathname === '/pacientes/novo') return 'Novo paciente';
   if (pathname.startsWith('/pacientes/')) return 'Editar paciente';
   if (pathname.startsWith('/pacientes')) return 'Pacientes';
+  if (pathname === '/medicamentos/novo') return 'Novo medicamento';
+  if (pathname.startsWith('/medicamentos/')) return 'Editar medicamento';
   if (pathname.startsWith('/medicamentos')) return 'Medicamentos';
   if (pathname.startsWith('/configuracoes')) return 'Configurações';
   return 'Medica Certo';
