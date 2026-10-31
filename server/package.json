@@ -7,9 +7,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node --watch index.mjs",
-    "start": "node index.mjs",
-    "test": "node --test"
+    "dev": "node --watch --harmony-temporal index.mjs",
+    "start": "node --harmony-temporal index.mjs",
+    "test": "node --harmony-temporal --test"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.6",

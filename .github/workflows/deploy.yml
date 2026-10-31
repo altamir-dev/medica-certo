@@ -1,0 +1,196 @@
+# Produção do medica-certo na VPS (Traefik).
+# Push em main: check → imagem GHCR (sha + latest) → SSH.
+# workflow_dispatch com image_tag (SHA de 40 hex) faz rollback sem rebuild.
+# Dispare o workflow a partir de main. O SHA de rollback precisa já existir no GHCR.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "SHA do commit (40 hex) para rollback. Vazio = build do HEAD e deploy."
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-medica-certo-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Production ref is main
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Deploy de produção só a partir de main (ref: ${GITHUB_REF})." >&2
+            exit 1
+          fi
+
+  check:
+    needs: guard
+    # Rollback reuses an image already pushed; skip the gate.
+    if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Typecheck and unit tests
+        run: |
+          npm ci
+          # Não há script de lint. Typecheck é o da web; o server é JS.
+          # Testes são unitários (sem Postgres). O server precisa de
+          # --harmony-temporal, já no script npm test.
+          npm run typecheck
+          npm run test -w server
+          npm run test -w web
+
+  build:
+    needs: check
+    if: ${{ needs.check.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          # Sem attestation: o job só precisa de contents + packages.
+          provenance: false
+          sbom: false
+          tags: |
+            ghcr.io/altamir-dev/medica-certo:${{ github.sha }}
+            ghcr.io/altamir-dev/medica-certo:latest
+          cache-from: type=gha,scope=medica-certo
+          cache-to: type=gha,mode=max,scope=medica-certo
+
+  deploy:
+    needs: [guard, check, build]
+    # Skipped check/build (rollback) are not failures. A failed guard blocks deploy.
+    if: ${{ always() && !cancelled() && needs.guard.result == 'success' && needs.check.result != 'failure' && needs.build.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Resolve image tag
+        id: target
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [[ -n "$INPUT_TAG" && ! "$INPUT_TAG" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Rollback image_tag must be the 40-character commit SHA used to build the image." >&2
+            exit 1
+          fi
+          echo "tag=${INPUT_TAG:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          # Compose e deploy.sh do commit que produziu a imagem.
+          ref: ${{ steps.target.outputs.tag }}
+          persist-credentials: false
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          VPS_PORT="${VPS_PORT:-22}"
+          if [[ -z "$SSH_KEY" || -z "$VPS_HOST" || -z "$VPS_USER" ]]; then
+            echo "Cadastre os secrets VPS_SSH_KEY, VPS_HOST e VPS_USER." >&2
+            exit 1
+          fi
+          if [[ ! "$VPS_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+            echo "VPS_HOST inválido." >&2
+            exit 1
+          fi
+          if [[ ! "$VPS_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "VPS_USER inválido." >&2
+            exit 1
+          fi
+          if [[ ! "$VPS_PORT" =~ ^[0-9]+$ ]] || ((VPS_PORT < 1 || VPS_PORT > 65535)); then
+            echo "VPS_PORT inválido." >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          {
+            echo "Host vps"
+            echo "  HostName ${VPS_HOST}"
+            echo "  User ${VPS_USER}"
+            echo "  Port ${VPS_PORT}"
+            echo "  IdentityFile ~/.ssh/deploy_key"
+            echo "  IdentitiesOnly yes"
+            echo "  BatchMode yes"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  ConnectTimeout 20"
+            echo "  ServerAliveInterval 30"
+            echo "  ServerAliveCountMax 4"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+      - name: Copy compose and deploy script
+        run: |
+          ssh vps 'mkdir -p /docker/medica-certo'
+          scp deploy/compose.vps.yaml vps:/docker/medica-certo/docker-compose.yml
+          scp deploy/deploy.sh vps:/docker/medica-certo/deploy.sh
+          ssh vps 'chmod +x /docker/medica-certo/deploy.sh'
+      - name: Deploy
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ steps.target.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          if [[ ! "$IMAGE_TAG" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "image tag must be a 40-character SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$GHCR_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "unexpected GHCR user" >&2
+            exit 1
+          fi
+          # Tag e usuário já foram validados; precisam expandir aqui, não no host remoto.
+          # shellcheck disable=SC2029
+          printf '%s' "$GHCR_TOKEN" | ssh vps \
+            "MEDICA_CERTO_IMAGE='ghcr.io/altamir-dev/medica-certo' MEDICA_CERTO_IMAGE_TAG='${IMAGE_TAG}' GHCR_USER='${GHCR_USER}' bash /docker/medica-certo/deploy.sh"
+      - name: Prune old GHCR versions
+        if: success() && github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: medica-certo
+          package-type: container
+          min-versions-to-keep: 10

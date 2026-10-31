@@ -1,0 +1,84 @@
+# Produção na VPS. O workflow copia este arquivo para
+# /docker/medica-certo/docker-compose.yml. Segredos ficam só no .env do servidor.
+#
+# Obrigatórios no .env: POSTGRES_PASSWORD, TRAEFIK_NETWORK.
+# O deploy.sh grava image.env (repositório + SHA) e chama:
+#   docker compose --env-file .env --env-file image.env up -d
+#
+# Sem ports: Postgres e app não escutam no host. O Traefik alcança o app
+# pela rede externa. Uma réplica — o scheduler de alarmes é in-process.
+
+name: medica-certo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    pull_policy: missing
+    environment:
+      POSTGRES_USER: medica
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env do servidor}
+      POSTGRES_DB: medica_certo
+    volumes:
+      - /docker/medica-certo/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U medica -d medica_certo']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    mem_limit: 256m
+    networks: [backend]
+    logging: &json-log
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  migrate:
+    image: ${MEDICA_CERTO_IMAGE:?Defina MEDICA_CERTO_IMAGE}:${MEDICA_CERTO_IMAGE_TAG:?Defina MEDICA_CERTO_IMAGE_TAG}
+    profiles: ['tools']
+    pull_policy: missing
+    env_file: .env
+    environment: &app-env
+      NODE_ENV: production
+      PORT: '8080'
+      HOST: 0.0.0.0
+      PUBLIC_HOST: ${PUBLIC_HOST:-medica-certo.altamir.dev}
+      COOKIE_SECURE: '1'
+      DATABASE_URL: postgres://medica:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env do servidor}@postgres:5432/medica_certo
+    command: ['node', 'server/migrate-cli.mjs']
+    networks: [backend]
+    init: true
+
+  app:
+    image: ${MEDICA_CERTO_IMAGE:?Defina MEDICA_CERTO_IMAGE}:${MEDICA_CERTO_IMAGE_TAG:?Defina MEDICA_CERTO_IMAGE_TAG}
+    restart: unless-stopped
+    pull_policy: missing
+    env_file: .env
+    environment:
+      <<: *app-env
+    volumes:
+      - /docker/medica-certo/data/med-photos:/app/data/med-photos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:?Defina TRAEFIK_NETWORK no .env do servidor}
+      - traefik.http.routers.medica-certo.rule=Host(`${PUBLIC_HOST:-medica-certo.altamir.dev}`)
+      - traefik.http.routers.medica-certo.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.medica-certo.tls=true
+      - traefik.http.routers.medica-certo.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      - traefik.http.routers.medica-certo.service=medica-certo
+      - traefik.http.services.medica-certo.loadbalancer.server.port=8080
+    mem_limit: 512m
+    networks: [backend, edge]
+    init: true
+    logging: *json-log
+
+networks:
+  backend:
+  edge:
+    name: ${TRAEFIK_NETWORK:?Defina TRAEFIK_NETWORK no .env do servidor}
+    external: true

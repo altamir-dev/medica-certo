@@ -50,4 +50,81 @@ Node 22 ESM · Fastify · PostgreSQL (`pg`) · Vite/React/TS · UI com CSS varia
 ## Próximos passos
 
 1. PR4 — CRUD de medicamentos + busca  
-2. Deploy na VPS com labels Traefik já esboçadas no Compose (`Host(\`medica-certo.altamir.dev\`)`)
+2. Configurar na mão o que o workflow não cria: secrets, `.env` na VPS, DNS e a rede do Traefik (abaixo)
+
+## Produção (VPS Hostinger + Traefik)
+
+Push na `main` roda `.github/workflows/deploy.yml`: testes unitários (sem Postgres), build da imagem `linux/amd64` e deploy por SSH. O app escuta só dentro da rede Docker; o Traefik publica `https://medica-certo.altamir.dev`. Postgres não abre porta no host.
+
+Rollback: Actions → Deploy → Run workflow (branch **main**) → `image_tag` = SHA completo (40 hex) de um commit que este workflow já publicou no GHCR. Vazio faz build do HEAD e deploy. O job de rollback não recompila. Um deploy em andamento não é cancelado pelo seguinte.
+
+A tag `:latest` acompanha o último push na `main`. A VPS sobe o SHA gravado em `/docker/medica-certo/image.env`, não a `:latest`.
+
+### Secrets do repositório
+
+O repositório ainda não tem secrets. Em **Settings → Secrets and variables → Actions**, cadastre:
+
+| Secret | Obrigatório | O que é |
+|---|---|---|
+| `VPS_SSH_KEY` | sim | Chave **privada** OpenSSH (bloco `BEGIN`/`END` e quebras de linha). A pública correspondente fica em `authorized_keys` do usuário da VPS. |
+| `VPS_HOST` | sim | IP ou hostname da VPS. |
+| `VPS_USER` | sim | Usuário SSH com permissão de `docker` e de escrita em `/docker/medica-certo`. |
+| `VPS_PORT` | não | Porta SSH. Se o secret não existir, o workflow usa `22`. |
+
+Não crie secret para o GHCR. O job usa o `GITHUB_TOKEN` do próprio Actions (login no `ghcr.io` durante o deploy; o token não fica no servidor).
+
+O primeiro push na `main` cria o pacote `ghcr.io/altamir-dev/medica-certo`. Pode nascer privado: o workflow mesmo assim faz pull, porque autentica com o token do repositório.
+
+### Uma vez na VPS
+
+O usuário de `VPS_USER` precisa do grupo `docker` e do diretório de deploy:
+
+```bash
+sudo mkdir -p /docker/medica-certo
+sudo chown "$USER":"$USER" /docker/medica-certo
+sudo usermod -aG docker "$USER"
+```
+
+Confira o nome da rede do Traefik (não há default no repositório):
+
+```bash
+docker network ls
+docker inspect <container-do-traefik> --format '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}'
+```
+
+O entrypoint e o certresolver precisam bater com o Traefik que já está na VPS. O padrão do Compose é `websecure` e `letsencrypt` (os mesmos labels do compose local). Se os nomes forem outros, defina `TRAEFIK_ENTRYPOINT` e `TRAEFIK_CERTRESOLVER` no `.env`.
+
+### `.env` em `/docker/medica-certo`
+
+Copie `deploy/env.vps.example` para `/docker/medica-certo/.env` e preencha **no servidor**. `chmod 600 .env`. Não commite.
+
+Obrigatório:
+
+- `POSTGRES_PASSWORD` — senha do banco `medica_certo`, usuário `medica`. Só letras, dígitos e `._-` (sem espaço, `$`, `@`, `:`, `/`, `#`, `?`, `%`). O Compose monta o `DATABASE_URL` interno; um `DATABASE_URL` no `.env` é ignorado.
+- `TRAEFIK_NETWORK` — nome exato da rede externa do Traefik.
+
+Opcionais no mesmo arquivo: `PUBLIC_HOST` (padrão `medica-certo.altamir.dev`), `TRAEFIK_ENTRYPOINT`, `TRAEFIK_CERTRESOLVER`, `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` / `BOOTSTRAP_NAME` (primeiro cuidador, se a tabela estiver vazia), chaves VAPID (`npx --yes web-push generate-vapid-keys`). Sem VAPID o site sobe e o Web Push fica desligado.
+
+O workflow só copia `docker-compose.yml` e `deploy.sh`. Não sobrescreve `.env`, `image.env` nem `data/`. Volumes:
+
+- `/docker/medica-certo/data/postgres`
+- `/docker/medica-certo/data/med-photos` (o script entrega o diretório ao uid `1000`, usuário `node` da imagem)
+
+Migrações: `server/migrations/*.sql` rodam num container efêmero antes de recriar o app e de novo no boot (a segunda passagem não refaz o que já entrou em `schema_migrations`). Se a migração falha, o app que já estava no ar não é trocado. Se `/api/health` não voltar `"status":"ok"`, o job falha.
+
+Subir de novo no servidor, sem novo build:
+
+```bash
+cd /docker/medica-certo
+docker compose --env-file .env --env-file image.env up -d
+```
+
+### DNS de `medica-certo.altamir.dev`
+
+Crie um registro **A** (e **AAAA**, se a VPS tiver IPv6) do host `medica-certo` para o IP público da VPS. Não altere MX, NS nem o apex `altamir.dev` por causa deste app.
+
+O Traefik na VPS precisa terminar TLS nesse host (entrypoint `websecure`, certresolver `letsencrypt`, salvo se o `.env` disser o contrário). As portas 80/443 do Traefik é que precisam estar acessíveis; a porta 8080 do app não é publicada.
+
+### Rede do Traefik
+
+`TRAEFIK_NETWORK` tem de ser uma rede Docker **já existente** e externa. O serviço `app` entra nela; o Postgres fica só na rede `backend` do projeto. O label `traefik.docker.network` usa o mesmo nome, para o proxy não escolher o IP da rede interna.
