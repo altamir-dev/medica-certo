@@ -5,6 +5,7 @@ export type Caregiver = {
   email: string;
   name: string;
   alarmsEnabled: boolean;
+  isAdmin: boolean;
 };
 
 type CaregiverResponse = { caregiver: Caregiver };
@@ -24,6 +25,7 @@ export function register(input: {
   email: string;
   password: string;
   name: string;
+  inviteToken?: string;
 }) {
   return apiFetch<CaregiverResponse>('/api/auth/register', {
     method: 'POST',

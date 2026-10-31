@@ -90,8 +90,9 @@ Node 22 ESM · Fastify · PostgreSQL (`pg`) · Vite/React/TS · UI com CSS varia
 ## Auth (PR2 / ADR 003)
 
 - Cookie `mc_session` (HttpOnly, SameSite=Lax; `Secure` em produção)
-- Primeiro cuidador: tela **Criar cuidador** em `/login`, ou seed `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` no `.env`
-- Depois do primeiro cadastro, `POST /api/auth/register` responde `409 BOOTSTRAP_CLOSED`
+- Primeiro cuidador: tela **Criar cuidador** em `/login`, ou seed `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` no `.env`. Esse cuidador fica administrador.
+- Depois do primeiro cadastro, `POST /api/auth/register` sem convite responde `409 BOOTSTRAP_CLOSED`
+- Convite: o administrador gera um link de uso único em **Configurações** (padrão 7 dias). Quem abre `/convite/:token` cria a própria conta, sem acesso aos pacientes dos outros
 
 ## Pacientes (PR3 / R2)
 

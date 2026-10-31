@@ -16,7 +16,11 @@ export function createRateLimiter({ max = 10, windowMs = 60_000 } = {}) {
   /** @type {Map<string, number[]>} */
   const hits = new Map();
 
-  return (key, now = Date.now()) => {
+  /**
+   * @param {string} key
+   * @param {number} [now]
+   */
+  function allow(key, now = Date.now()) {
     const recent = (hits.get(key) || []).filter((t) => now - t < windowMs);
     if (recent.length >= max) {
       hits.set(key, recent);
@@ -25,11 +29,25 @@ export function createRateLimiter({ max = 10, windowMs = 60_000 } = {}) {
     recent.push(now);
     hits.set(key, recent);
     return true;
+  }
+
+  allow.reset = () => {
+    hits.clear();
   };
+
+  return allow;
 }
 
 export const loginRateLimit = createRateLimiter({ max: 10, windowMs: 60_000 });
 export const registerRateLimit = createRateLimiter({ max: 10, windowMs: 60_000 });
+export const inviteLookupRateLimit = createRateLimiter({
+  max: 10,
+  windowMs: 60_000,
+});
+export const inviteManageRateLimit = createRateLimiter({
+  max: 10,
+  windowMs: 60_000,
+});
 
 /**
  * @param {string} password
@@ -109,7 +127,7 @@ export async function createSession(caregiverId) {
 /**
  * @param {string | null} token
  * @returns {Promise<{
- *   caregiver: { id: string, email: string, name: string, alarmsEnabled: boolean },
+ *   caregiver: { id: string, email: string, name: string, alarmsEnabled: boolean, isAdmin: boolean },
  *   sessionId: string,
  *   refreshedCookie?: string
  * } | null>}
@@ -124,7 +142,8 @@ export async function resolveSession(token) {
        c.id AS caregiver_id,
        c.email,
        c.name,
-       c.alarms_enabled
+       c.alarms_enabled,
+       c.is_admin
      FROM sessions s
      INNER JOIN caregivers c ON c.id = s.caregiver_id
      WHERE s.id = $1`,
@@ -158,12 +177,13 @@ export async function resolveSession(token) {
 
   return {
     sessionId: row.session_id,
-    caregiver: {
+    caregiver: toPublicCaregiver({
       id: row.caregiver_id,
       email: row.email,
       name: row.name,
-      alarmsEnabled: row.alarms_enabled,
-    },
+      alarms_enabled: row.alarms_enabled,
+      is_admin: row.is_admin,
+    }),
     refreshedCookie,
   };
 }
@@ -184,23 +204,30 @@ export async function countCaregivers() {
 }
 
 /**
- * @param {{ email: string, password: string, name: string }} input
+ * @param {{ id: string, email: string, name: string, alarms_enabled: boolean, is_admin?: boolean }} row
  */
-export async function createCaregiver({ email, password, name }) {
-  const passwordHash = await hashPassword(password);
-  const { rows } = await getPool().query(
-    `INSERT INTO caregivers (email, password_hash, name)
-     VALUES ($1, $2, $3)
-     RETURNING id, email, name, alarms_enabled`,
-    [email.trim().toLowerCase(), passwordHash, name.trim()],
-  );
-  const row = rows[0];
+export function toPublicCaregiver(row) {
   return {
     id: row.id,
     email: row.email,
     name: row.name,
     alarmsEnabled: row.alarms_enabled,
+    isAdmin: Boolean(row.is_admin),
   };
+}
+
+/**
+ * @param {{ email: string, password: string, name: string, isAdmin?: boolean }} input
+ */
+export async function createCaregiver({ email, password, name, isAdmin = false }) {
+  const passwordHash = await hashPassword(password);
+  const { rows } = await getPool().query(
+    `INSERT INTO caregivers (email, password_hash, name, is_admin)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, email, name, alarms_enabled, is_admin`,
+    [email.trim().toLowerCase(), passwordHash, name.trim(), isAdmin],
+  );
+  return toPublicCaregiver(rows[0]);
 }
 
 /**
@@ -208,7 +235,7 @@ export async function createCaregiver({ email, password, name }) {
  */
 export async function findCaregiverByEmail(email) {
   const { rows } = await getPool().query(
-    `SELECT id, email, name, password_hash, alarms_enabled
+    `SELECT id, email, name, password_hash, alarms_enabled, is_admin
      FROM caregivers
      WHERE email = $1`,
     [email.trim().toLowerCase()],
@@ -228,7 +255,7 @@ export async function maybeSeedBootstrap(logger = console) {
   if (count > 0) return;
 
   const name = config.bootstrapName || 'Cuidador';
-  await createCaregiver({ email, password, name });
+  await createCaregiver({ email, password, name, isAdmin: true });
   logger.info?.(
     { email },
     'bootstrap caregiver created from BOOTSTRAP_* env',
