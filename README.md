@@ -10,7 +10,7 @@ Documentação: `CONTEXT.md`, `docs/prd.md`, `docs/design.md`, `docs/roadmap.md`
 - Node.js ≥ 22
 - Docker (Postgres local)
 
-## Desenvolvimento local (PR1)
+## Desenvolvimento local
 
 ```bash
 ./start.sh          # Postgres (Docker) + Fastify (:8080) + Vite (:5173)
@@ -31,6 +31,58 @@ npm run dev
 
 O Vite faz proxy de `/api` para o Fastify. Ctrl+C no `start.sh` para API/web; o Postgres no Docker permanece (`docker compose stop postgres` se quiser derrubar).
 
+## Conta demo (local)
+
+Seed gerado via Playwright para os prints abaixo:
+
+| Campo | Valor |
+| --- | --- |
+| E-mail | `demo@medica.test` |
+| Senha | `demo12345` |
+| Nome | Ana Cuidadora |
+
+Pacientes de exemplo: **Maria Silva**, **João Pereira**.  
+Medicamentos: Dipirona 500 mg, Losartana 50 mg, Omeprazol 20 mg.
+
+Para regenerar os prints (app precisa estar no ar):
+
+```bash
+# opcional: npm install -D @playwright/test && npx playwright install chromium
+MC_BASE_URL=http://127.0.0.1:5179 node scripts/demo-screenshots.mjs
+```
+
+## Telas
+
+### Login
+
+![Login do cuidador](docs/screenshots/01-login.png)
+
+### Catálogo de medicamentos
+
+![Lista de medicamentos](docs/screenshots/04-medicamentos-lista.png)
+
+### Pacientes
+
+![Lista de pacientes](docs/screenshots/05-pacientes-lista.png)
+
+### Folha do paciente (doses ministradas)
+
+Chips preenchidos = dose administrada. Contorno = pendente.
+
+![Folha Maria Silva com doses ministradas](docs/screenshots/09-folha-maria-ministradas.png)
+
+![Folha João Pereira com dose ministrada](docs/screenshots/10-folha-joao-ministradas.png)
+
+### Grade de doses
+
+![Grade Dipirona — Maria](docs/screenshots/12-grade-com-status.png)
+
+![Grade Omeprazol — João](docs/screenshots/07-grade-joao-omeprazol.png)
+
+### Dashboard
+
+![Dashboard com grade multi-paciente](docs/screenshots/11-dashboard.png)
+
 ## Stack (ADR 001)
 
 Node 22 ESM · Fastify · PostgreSQL (`pg`) · Vite/React/TS · UI com CSS variables · deploy Docker 1 réplica.
@@ -45,12 +97,13 @@ Node 22 ESM · Fastify · PostgreSQL (`pg`) · Vite/React/TS · UI com CSS varia
 
 - Rotas: `GET/POST /api/patients`, `GET/PUT/DELETE /api/patients/:id`
 - UI: `/pacientes`, `/pacientes/novo`, `/pacientes/:id`
-- Janela de sono padrão `22:00–07:00`; `DELETE` responde `409 CONFLICT` se houver tratamento ativo (quando a tabela existir)
+- Janela de sono padrão `22:00–07:00`; `DELETE` responde `409 CONFLICT` se houver tratamento ativo
 
-## Próximos passos
+## Medicamentos e tratamentos
 
-1. PR4 — CRUD de medicamentos + busca  
-2. Configurar na mão o que o workflow não cria: secrets, `.env` na VPS, DNS e a rede do Traefik (abaixo)
+- Catálogo em `/medicamentos` (CRUD + busca)
+- Tratamento = paciente + medicamento + esquema de horários + grade de doses
+- Folha do paciente e dashboard marcam doses como administradas
 
 ## Produção (VPS Hostinger + Traefik)
 
