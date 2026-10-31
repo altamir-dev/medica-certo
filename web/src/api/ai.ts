@@ -5,6 +5,12 @@ export type AiStatus = {
   providerName: string;
   model: string;
   consented: boolean;
+  quota?: {
+    limit: number;
+    used: number;
+    remaining: number;
+    reached: boolean;
+  };
 };
 
 export type DraftCandidate = {

@@ -161,6 +161,10 @@ export function MedicationDraftPage() {
   }, [file]);
 
   const backHref = patientId ? `/pacientes/${patientId}` : '/medicamentos';
+  const quotaReached = Boolean(status?.quota?.reached);
+  const manualHref = patientId
+    ? `/pacientes/${patientId}/tratamentos/novo`
+    : '/medicamentos/novo';
 
   const notice = useMemo(() => {
     if (!status?.enabled) return '';
@@ -295,6 +299,12 @@ export function MedicationDraftPage() {
 
         {phase === 'capture' || phase === 'failed' ? (
           <form className="patients-form" onSubmit={onAnalyze}>
+            {quotaReached ? (
+              <p className="patients-alert" role="status">
+                Você já usou as {status?.quota?.limit ?? 5} leituras deste mês. Dá
+                para cadastrar o medicamento à mão.
+              </p>
+            ) : null}
             <label className="patients-field">
               <span>Foto</span>
               <input
@@ -330,14 +340,14 @@ export function MedicationDraftPage() {
               <button
                 type="submit"
                 className="patients-btn patients-btn--primary"
-                disabled={!file || submitting}
+                disabled={!file || submitting || quotaReached}
               >
                 Analisar
               </button>
               <Link to={backHref} className="patients-btn patients-btn--secondary">
                 Cancelar
               </Link>
-              <Link to="/medicamentos/novo" className="patients-btn patients-btn--secondary">
+              <Link to={manualHref} className="patients-btn patients-btn--secondary">
                 Preencher à mão
               </Link>
             </div>

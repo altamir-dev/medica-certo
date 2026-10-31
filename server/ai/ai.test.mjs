@@ -10,7 +10,7 @@ import {
   sanitizeModelPayload,
 } from './extract.mjs';
 import { readWithOneRetry } from './openrouter.mjs';
-import { assessUsage, estimateCostUsd, readAiSettings } from './settings.mjs';
+import { assessUsage, estimateCostUsd, readAiSettings, saoPauloMonthBounds } from './settings.mjs';
 
 describe('readAiSettings', () => {
   it('fica desligada sem chave, sem modelo ou sem AI_ENABLED', () => {
@@ -39,36 +39,27 @@ describe('readAiSettings', () => {
       AI_MODEL: 'deepseek/deepseek-v4.1-flash-1017',
     });
     assert.equal(settings.enabled, true);
-    assert.equal(settings.model, 'deepseek/deepseek-v4.1-flash-1017');
+    assert.equal(settings.monthlyLimit, 5);
+    assert.equal(settings.imageRetainDays, 90);
     assert.equal(settings.providerName, 'OpenRouter');
     assert.equal(settings.baseUrl, 'https://openrouter.ai/api/v1');
   });
 });
 
-describe('assessUsage e custo', () => {
-  const limits = {
-    dailyLimit: 30,
-    hourlyLimit: 10,
-    monthlyBudgetUsd: 5,
-  };
+describe('assessUsage e mês de São Paulo', () => {
+  it('bloqueia a partir da 5ª leitura do mês', () => {
+    assert.equal(assessUsage({ used: 5, limit: 5 }).code, 'RATE_LIMITED');
+    assert.match(assessUsage({ used: 5, limit: 5 }).message ?? '', /5 leituras/);
+    assert.equal(assessUsage({ used: 4, limit: 5 }).ok, true);
+  });
 
-  it('bloqueia o 11º pedido da hora e o estouro do teto', () => {
-    assert.equal(
-      assessUsage({ ...limits, dailyCount: 0, hourlyCount: 10, monthCostUsd: 0 }).code,
-      'RATE_LIMITED',
-    );
-    assert.equal(
-      assessUsage({ ...limits, dailyCount: 30, hourlyCount: 0, monthCostUsd: 0 }).code,
-      'RATE_LIMITED',
-    );
-    assert.equal(
-      assessUsage({ ...limits, dailyCount: 1, hourlyCount: 1, monthCostUsd: 5 }).code,
-      'AI_BUDGET',
-    );
-    assert.equal(
-      assessUsage({ ...limits, dailyCount: 1, hourlyCount: 1, monthCostUsd: 0 }).ok,
-      true,
-    );
+  it('corta o mês no fuso de São Paulo', () => {
+    const beforeMidnight = saoPauloMonthBounds(new Date('2026-11-01T02:30:00.000Z'));
+    assert.equal(beforeMidnight.start.toISOString(), '2026-10-01T03:00:00.000Z');
+    assert.equal(beforeMidnight.end.toISOString(), '2026-11-01T03:00:00.000Z');
+    const afterMidnight = saoPauloMonthBounds(new Date('2026-11-01T03:30:00.000Z'));
+    assert.equal(afterMidnight.start.toISOString(), '2026-11-01T03:00:00.000Z');
+    assert.equal(afterMidnight.end.toISOString(), '2026-12-01T03:00:00.000Z');
   });
 
   it('estima para cima quando o provedor não devolve usage', () => {

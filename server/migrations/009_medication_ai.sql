@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS medication_drafts (
   candidates jsonb NULL,
   confirmed_medication_ids uuid[] NOT NULL DEFAULT '{}',
   confirmed_treatment_ids uuid[] NOT NULL DEFAULT '{}',
+  copied_photo_paths text[] NOT NULL DEFAULT '{}',
   expires_at timestamptz NOT NULL,
   image_purge_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now(),

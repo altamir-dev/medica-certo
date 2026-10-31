@@ -25,16 +25,14 @@ export function readAiSettings(env = process.env) {
     providerName,
     timeoutMs: clampInt(env.AI_TIMEOUT_MS, 45_000, 5_000, 120_000),
     maxUploadBytes: clampInt(env.AI_MAX_UPLOAD_BYTES, 8 * 1024 * 1024, 256 * 1024, 12 * 1024 * 1024),
-    dailyLimit: clampInt(env.AI_DAILY_LIMIT, 30, 1, 500),
-    hourlyLimit: clampInt(env.AI_HOURLY_LIMIT, 10, 1, 100),
-    monthlyBudgetUsd: clampNum(env.AI_MONTHLY_BUDGET_USD, 5, 0.01, 1000),
+    monthlyLimit: clampInt(env.AI_MONTHLY_LIMIT, 5, 1, 500),
     priceInputPerMillion: clampNum(env.AI_PRICE_INPUT_PER_MILLION, 0.0141, 0, 1000),
     priceOutputPerMillion: clampNum(env.AI_PRICE_OUTPUT_PER_MILLION, 0.144, 0, 1000),
     httpReferer:
       String(env.AI_HTTP_REFERER ?? 'https://medica-certo.altamir.dev').trim(),
     appTitle: String(env.AI_APP_TITLE ?? 'Medica Certo').trim() || 'Medica Certo',
     dataCollection: env.AI_DATA_COLLECTION === 'allow' ? 'allow' : 'deny',
-    prescriptionRetainDays: clampInt(env.AI_PRESCRIPTION_RETAIN_DAYS, 1, 0, 365),
+    imageRetainDays: clampInt(env.AI_IMAGE_RETAIN_DAYS, 90, 0, 3650),
     promptVersion: String(env.AI_PROMPT_VERSION ?? 'v1').trim() || 'v1',
   };
 }
@@ -79,17 +77,42 @@ export function estimateCostUsd(input) {
 }
 
 /**
- * @param {{ dailyCount: number, hourlyCount: number, monthCostUsd: number, dailyLimit: number, hourlyLimit: number, monthlyBudgetUsd: number }} usage
+ * Mês-calendário em America/Sao_Paulo, intervalo [início, fim).
+ * @param {Date} [now]
+ */
+export function saoPauloMonthBounds(now = new Date()) {
+  const zoned = Temporal.Instant.from(now.toISOString()).toZonedDateTimeISO(
+    'America/Sao_Paulo',
+  );
+  const start = zoned
+    .toPlainDate()
+    .with({ day: 1 })
+    .toZonedDateTime('America/Sao_Paulo');
+  const end = zoned
+    .toPlainDate()
+    .with({ day: 1 })
+    .add({ months: 1 })
+    .toZonedDateTime('America/Sao_Paulo');
+  return {
+    start: new Date(start.epochMilliseconds),
+    end: new Date(end.epochMilliseconds),
+  };
+}
+
+/**
+ * @param {number} limit
+ */
+export function quotaMessage(limit) {
+  const label = limit === 1 ? '1 leitura' : `${limit} leituras`;
+  return `Você já usou as ${label} deste mês. Dá para cadastrar o medicamento à mão.`;
+}
+
+/**
+ * @param {{ used: number, limit: number }} usage
  */
 export function assessUsage(usage) {
-  if (usage.hourlyCount >= usage.hourlyLimit) {
-    return { ok: false, code: 'RATE_LIMITED' };
-  }
-  if (usage.dailyCount >= usage.dailyLimit) {
-    return { ok: false, code: 'RATE_LIMITED' };
-  }
-  if (usage.monthCostUsd >= usage.monthlyBudgetUsd) {
-    return { ok: false, code: 'AI_BUDGET' };
+  if (usage.used >= usage.limit) {
+    return { ok: false, code: 'RATE_LIMITED', message: quotaMessage(usage.limit) };
   }
   return { ok: true };
 }

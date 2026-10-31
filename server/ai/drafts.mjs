@@ -8,6 +8,7 @@ import { getPool } from '../db.mjs';
 import {
   createMedication,
   parseMedicationBody,
+  resolvePhotoAbsolutePath,
   saveMedicationPhoto,
 } from '../medications.mjs';
 import { createTreatment, parseTreatmentBody } from '../treatments.mjs';
@@ -15,7 +16,12 @@ import { stripJpegMetadata } from './exif.mjs';
 import { ROUTE_SET } from './extract.mjs';
 import { readWithOneRetry } from './openrouter.mjs';
 import { interpretReading } from './reading.mjs';
-import { assessUsage, estimateCostUsd, readAiSettings } from './settings.mjs';
+import {
+  assessUsage,
+  estimateCostUsd,
+  readAiSettings,
+  saoPauloMonthBounds,
+} from './settings.mjs';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -72,39 +78,45 @@ async function loadOwned(caregiverId, draftId) {
  * @param {import('./settings.mjs').readAiSettings extends Function ? ReturnType<import('./settings.mjs').readAiSettings> : never} settings
  * @param {string} caregiverId
  */
-async function usageSnapshot(settings, caregiverId) {
-  const pool = getPool();
-  const hourly = await pool.query(
+/**
+ * Leituras já feitas no mês-calendário de America/Sao_Paulo.
+ * @param {string} caregiverId
+ * @param {Date} [now]
+ */
+export async function countMonthlyReadings(caregiverId, now = new Date()) {
+  const bounds = saoPauloMonthBounds(now);
+  const result = await getPool().query(
     `SELECT COUNT(*)::int AS n
      FROM medication_ai_events
      WHERE caregiver_id = $1
-       AND created_at > now() - interval '1 hour'
-       AND outcome <> 'pending'`,
-    [caregiverId],
+       AND created_at >= $2
+       AND created_at < $3`,
+    [caregiverId, bounds.start, bounds.end],
   );
-  const daily = await pool.query(
-    `SELECT COALESCE(SUM(request_count), 0)::int AS n,
-            COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
-     FROM ai_usage_daily
-     WHERE caregiver_id = $1
-       AND usage_date = CURRENT_DATE`,
-    [caregiverId],
-  );
-  const month = await pool.query(
-    `SELECT COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
-     FROM ai_usage_daily
-     WHERE caregiver_id = $1
-       AND usage_date >= date_trunc('month', CURRENT_DATE)::date`,
-    [caregiverId],
-  );
-  return assessUsage({
-    hourlyCount: hourly.rows[0]?.n ?? 0,
-    dailyCount: daily.rows[0]?.n ?? 0,
-    monthCostUsd: Number(month.rows[0]?.cost ?? 0),
-    dailyLimit: settings.dailyLimit,
-    hourlyLimit: settings.hourlyLimit,
-    monthlyBudgetUsd: settings.monthlyBudgetUsd,
-  });
+  return result.rows[0]?.n ?? 0;
+}
+
+/**
+ * @param {string} caregiverId
+ */
+export async function monthlyQuota(caregiverId) {
+  const settings = readAiSettings();
+  const used = await countMonthlyReadings(caregiverId);
+  return {
+    limit: settings.monthlyLimit,
+    used,
+    remaining: Math.max(0, settings.monthlyLimit - used),
+    reached: used >= settings.monthlyLimit,
+  };
+}
+
+/**
+ * @param {ReturnType<typeof readAiSettings>} settings
+ * @param {string} caregiverId
+ */
+async function usageSnapshot(settings, caregiverId) {
+  const used = await countMonthlyReadings(caregiverId);
+  return assessUsage({ used, limit: settings.monthlyLimit });
 }
 
 /**
@@ -153,7 +165,7 @@ export async function createDraft(caregiverId, file, deps = {}) {
     return { ok: false, code: 'CONSENT_REQUIRED' };
   }
   const gate = await usageSnapshot(settings, caregiverId);
-  if (!gate.ok) return { ok: false, code: gate.code };
+  if (!gate.ok) return { ok: false, code: gate.code, message: gate.message };
 
   const ext =
     file.mimetype === 'image/png'
@@ -190,7 +202,7 @@ export async function createDraft(caregiverId, file, deps = {}) {
          id, caregiver_id, patient_id, status, image_path, image_sha256,
          mime_type, model_provider, model_name, prompt_version, expires_at
        ) VALUES (
-         $1, $2, $3, 'processing', $4, $5, $6, $7, $8, $9, now() + interval '24 hours'
+         $1, $2, $3, 'processing', $4, $5, $6, $7, $8, $9, $10
        )
        RETURNING *`,
       [
@@ -203,6 +215,7 @@ export async function createDraft(caregiverId, file, deps = {}) {
         settings.providerName,
         settings.model,
         settings.promptVersion,
+        new Date(Date.now() + settings.imageRetainDays * 24 * 60 * 60 * 1000),
       ],
     );
     await client.query(
@@ -599,30 +612,12 @@ export async function confirmDraft(caregiverId, draftId, body) {
     }
 
     const settings = readAiSettings();
-    const purge =
-      row.document_kind === 'prescription'
-        ? settings.prescriptionRetainDays <= 0
-          ? new Date()
-          : new Date(Date.now() + settings.prescriptionRetainDays * 24 * 60 * 60 * 1000)
-        : new Date();
-    await getPool().query(
-      `UPDATE medication_drafts
-       SET status = 'confirmed',
-           confirmed_medication_ids = $3,
-           confirmed_treatment_ids = $4,
-           image_purge_at = $5,
-           updated_at = now()
-       WHERE id = $1 AND caregiver_id = $2 AND status = 'ready'`,
-      [
-        draftId,
-        caregiverId,
-        medicationIds,
-        createdTreatmentIds,
-        purge,
-      ],
+    const purgeAt = new Date(
+      Date.now() + settings.imageRetainDays * 24 * 60 * 60 * 1000,
     );
-
-    if (row.document_kind === 'package' && row.image_path) {
+    /** @type {string[]} */
+    const copiedPhotoPaths = [];
+    if (row.document_kind === 'package' && row.image_path && settings.imageRetainDays > 0) {
       const absolute = resolveIntakeAbsolutePath(row.image_path);
       const buffer = await readFile(absolute);
       for (const target of photoTargets) {
@@ -630,13 +625,37 @@ export async function confirmDraft(caregiverId, draftId, body) {
           buffer,
           mimetype: row.mime_type,
         });
+        const saved = await getPool().query(
+          `SELECT photo_path FROM medications
+           WHERE id = $1 AND caregiver_id = $2`,
+          [target.id, caregiverId],
+        );
+        const photoPath = saved.rows[0]?.photo_path;
+        if (typeof photoPath === 'string' && photoPath) copiedPhotoPaths.push(photoPath);
       }
     }
 
-    if (row.document_kind !== 'prescription' || settings.prescriptionRetainDays <= 0) {
-      if (row.image_path) {
-        await unlink(resolveIntakeAbsolutePath(row.image_path)).catch(() => {});
-      }
+    await getPool().query(
+      `UPDATE medication_drafts
+       SET status = 'confirmed',
+           confirmed_medication_ids = $3,
+           confirmed_treatment_ids = $4,
+           image_purge_at = $5,
+           copied_photo_paths = $6,
+           updated_at = now()
+       WHERE id = $1 AND caregiver_id = $2 AND status = 'ready'`,
+      [
+        draftId,
+        caregiverId,
+        medicationIds,
+        createdTreatmentIds,
+        purgeAt,
+        copiedPhotoPaths,
+      ],
+    );
+
+    if (settings.imageRetainDays <= 0 && row.image_path) {
+      await unlink(resolveIntakeAbsolutePath(row.image_path)).catch(() => {});
       await getPool().query(
         `UPDATE medication_drafts
          SET image_path = ''
@@ -693,9 +712,12 @@ export async function purgeExpiredIntakes() {
        AND updated_at < now() - interval '2 minutes'`,
   );
   const due = await pool.query(
-    `SELECT id, caregiver_id, image_path
+    `SELECT id, caregiver_id, image_path, copied_photo_paths
      FROM medication_drafts
-     WHERE image_path <> ''
+     WHERE (
+         image_path <> ''
+         OR cardinality(copied_photo_paths) > 0
+       )
        AND (
          (status IN ('ready', 'failed', 'discarded') AND expires_at < now())
          OR (status = 'confirmed' AND image_purge_at IS NOT NULL AND image_purge_at < now())
@@ -705,9 +727,27 @@ export async function purgeExpiredIntakes() {
     if (row.image_path) {
       await unlink(resolveIntakeAbsolutePath(row.image_path)).catch(() => {});
     }
+    const copies = Array.isArray(row.copied_photo_paths)
+      ? row.copied_photo_paths
+      : [];
+    for (const relative of copies) {
+      if (typeof relative !== 'string' || !relative) continue;
+      try {
+        await unlink(resolvePhotoAbsolutePath(relative));
+      } catch {
+        // arquivo já ausente
+      }
+      await pool.query(
+        `UPDATE medications
+         SET photo_path = NULL, updated_at = now()
+         WHERE caregiver_id = $1 AND photo_path = $2`,
+        [row.caregiver_id, relative],
+      );
+    }
     await pool.query(
       `UPDATE medication_drafts
        SET image_path = '',
+           copied_photo_paths = '{}',
            extracted = NULL,
            status = CASE WHEN status = 'confirmed' THEN 'confirmed' ELSE 'expired' END,
            updated_at = now()
