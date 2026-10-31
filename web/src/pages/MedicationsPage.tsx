@@ -8,6 +8,7 @@ import {
   type Medication,
 } from '../api/medications';
 import { safeReturnTo } from '../lib/safeReturnTo';
+import { useAiStatus } from '../ai/useAiStatus';
 import './PatientsPage.css';
 import './MedicationsPage.css';
 
@@ -24,6 +25,7 @@ export function MedicationsPage() {
   const [medications, setMedications] = useState<Medication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const ai = useAiStatus();
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -111,6 +113,14 @@ export function MedicationsPage() {
           <Plus weight="bold" size={18} aria-hidden="true" />
           Novo medicamento
         </Link>
+        {ai?.enabled ? (
+          <Link
+            to="/medicamentos/por-foto"
+            className="patients-btn patients-btn--secondary"
+          >
+            Cadastrar com foto
+          </Link>
+        ) : null}
       </div>
 
       <div className="meds-search">

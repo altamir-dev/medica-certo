@@ -96,6 +96,8 @@ export function mapTreatment(row) {
       ? formatZonedIso(toZoned(row.ended_at))
       : null,
     endReason: row.end_reason ?? null,
+    posologyOrigin: row.posology_origin ?? null,
+    posologyRaw: row.posology_raw ?? null,
     status: row.status,
     doseQuantity: row.dose_quantity,
     route: row.route,
@@ -140,7 +142,8 @@ export function mapDose(row) {
 
 const SELECT_TREATMENT = `
   t.id, t.caregiver_id, t.patient_id, t.medication_id,
-  t.starts_at, t.ends_on, t.ended_at, t.end_reason, t.status,
+  t.starts_at, t.ends_on, t.ended_at, t.end_reason, t.posology_origin,
+  t.posology_raw, t.status,
   t.dose_quantity, t.route, t.schedule_mode, t.interval_hours,
   t.times_of_day, t.alarms_enabled, t.generated_until,
   t.created_at, t.updated_at,

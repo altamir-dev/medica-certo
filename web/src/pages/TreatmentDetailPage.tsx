@@ -166,6 +166,13 @@ export function TreatmentDetailPage() {
             <strong>Alarmes:</strong>{' '}
             {treatment.alarmsEnabled ? 'ativos' : 'desligados'}
           </p>
+          {treatment.posologyOrigin === 'prescription_confirmed' ? (
+            <p className="patients-field__hint">
+              Conferido por você a partir de uma leitura automática. Não
+              substitui o médico nem a bula.
+              {treatment.posologyRaw ? ` Texto lido: ${treatment.posologyRaw}` : ''}
+            </p>
+          ) : null}
 
           <div className="treatments-actions">
             {treatment.status === 'active' ? (

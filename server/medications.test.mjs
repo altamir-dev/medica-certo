@@ -65,6 +65,10 @@ describe('mapMedication', () => {
       indication: '',
       referencePosology: '',
       usualIntervalHours: 8,
+      concentration: '',
+      presentation: '',
+      anvisaRegistry: '',
+      catalogOrigin: 'manual',
       hasPhoto: true,
       createdAt: '2026-01-02T03:04:05.000Z',
       updatedAt: '2026-01-03T04:05:06.000Z',
@@ -107,6 +111,10 @@ describe('parseMedicationBody', () => {
         indication: 'asma',
         referencePosology: '1 cp',
         usualIntervalHours: 8,
+        concentration: '',
+        presentation: '',
+        anvisaRegistry: '',
+        catalogOrigin: 'manual',
       });
     }
   });

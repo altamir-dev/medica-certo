@@ -20,6 +20,7 @@ import {
   EndTreatmentDialog,
   RemoveTreatmentDialog,
 } from './TreatmentStopDialogs';
+import { useAiStatus } from '../ai/useAiStatus';
 import {
   administerDose,
   getPatientSheet,
@@ -145,6 +146,7 @@ const GRID_CELLS = GRID_ROWS * GRID_COLS;
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const now = useNowMinute();
+  const ai = useAiStatus();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [sheet, setSheet] = useState<PatientSheet | null>(null);
   const [treatments, setTreatments] = useState<Treatment[] | null>(null);
@@ -337,6 +339,14 @@ export function PatientDetailPage() {
             <Plus weight="bold" size={18} aria-hidden="true" />
             Adicionar medicamento
           </Link>
+          {ai?.enabled ? (
+            <Link
+              to={`/pacientes/${id}/tratamentos/por-foto`}
+              className="patients-btn patients-btn--secondary"
+            >
+              Fotografar caixa ou receita
+            </Link>
+          ) : null}
         </div>
       </div>
 

@@ -21,7 +21,7 @@ A posologia sugerida não substitui o médico nem a bula. O app é o caderno do 
 
 **Provedor: OpenRouter.** O servidor chama `https://openrouter.ai/api/v1` no formato chat completions. Não há cliente da API direta da DeepSeek nem do 9router neste fluxo. A base URL também vem de `AI_BASE_URL`, para o deploy apontar para a OpenRouter sem recompilar.
 
-**Modelo e chave só em ambiente.** O código não traz slug nem segredo. Com `AI_ENABLED=1`, o boot falha se `AI_MODEL` ou `AI_API_KEY` estiver vazio. O valor previsto de `AI_MODEL` é `deepseek/deepseek-v4.1-flash-1017` (snapshot de 17/10/2026 do DeepSeek V4.1 Flash, o Flash mais novo com visão no catálogo em 31/10/2026). Visão nativa, JSON schema em `response_format`. A chamada desliga o raciocínio (`reasoning.enabled: false`), para a saída ser o JSON. Trocar o modelo é editar o `.env` da VPS e subir de novo; isso invalida o aceite de envio da imagem. O alias `~deepseek/deepseek-flash-latest` continua fora do exemplo: não tem preço próprio, e um alias vizinho já apontou para um Flash sem visão.
+**Modelo e chave só em ambiente.** O código não traz slug nem segredo. Sem `AI_API_KEY`, sem `AI_MODEL` ou com `AI_ENABLED` diferente de `1`, a leitura por foto fica desligada e o processo sobe normalmente. O valor previsto de `AI_MODEL` é `deepseek/deepseek-v4.1-flash-1017` (snapshot de 17/10/2026 do DeepSeek V4.1 Flash, o Flash mais novo com visão no catálogo em 31/10/2026). Visão nativa, JSON schema em `response_format`. A chamada desliga o raciocínio (`reasoning.enabled: false`), para a saída ser o JSON. Trocar o modelo é editar o `.env` da VPS e subir de novo; isso invalida o aceite de envio da imagem. O alias `~deepseek/deepseek-flash-latest` continua fora do exemplo: não tem preço próprio, e um alias vizinho já apontou para um Flash sem visão.
 
 Preço de tabela desse slug na OpenRouter: **US$ 0,0141 / US$ 0,144 por 1M tokens**, ordem de **US$ 0,00013 por foto**. A OpenRouter escolhe o host. Latência alvo **5 a 15 s**; timeout **45 s**. O pedido manda `data_collection: "deny"` e `require_parameters: true`.
 
@@ -597,7 +597,7 @@ O Compose da VPS usa `env_file: .env` e um bloco `environment:` que **não** lis
 |---|---|---|
 | `AI_ENABLED` | `0` | `1` liga rotas e botão. Default `0` |
 | `AI_BASE_URL` | `https://openrouter.ai/api/v1` | Sem barra final. Provedor deste fluxo |
-| `AI_API_KEY` | — | Bearer da OpenRouter. Sem default. Vazio com `AI_ENABLED=1` impede o boot |
+| `AI_API_KEY` | — | Bearer da OpenRouter. Sem default. Vazio deixa a leitura por foto desligada e o app sobe |
 | `AI_MODEL` | `deepseek/deepseek-v4.1-flash-1017` | Slug lido do ambiente. Sem default no código. Sem alias `~…-latest` e sem Jev no exemplo |
 | `AI_PROVIDER_NAME` | `OpenRouter` | Texto do aviso, junto com o slug de `AI_MODEL`. Obrigatório se `AI_ENABLED=1` |
 | `AI_TIMEOUT_MS` | `45000` | |
@@ -718,7 +718,7 @@ Aceite:
 - JPEG de teste com comentário EXIF/GPS, depois da regravação, não contém o marcador GPS (teste no buffer).
 - Consentimento ausente → `CONSENT_REQUIRED` e zero chamadas.
 - Trocar `AI_MODEL` no config do teste invalida o aceite.
-- Com `AI_ENABLED=1` e sem `AI_MODEL` ou sem `AI_API_KEY`, o boot falha. O fonte não contém um slug de reserva.
+- Com `AI_ENABLED=1` e sem `AI_MODEL` ou sem `AI_API_KEY`, a feature fica desligada e o processo sobe. O fonte não contém um slug de reserva.
 - `AI_ENABLED=0` → POST 404.
 - Checklist manual do PR: `.env` da VPS ainda não recebe a chave até o Altamir pedir para ligar.
 
@@ -764,6 +764,25 @@ Aceite:
 
 - **Provedor:** OpenRouter (`AI_BASE_URL=https://openrouter.ai/api/v1`). Sem API direta da DeepSeek e sem 9router neste fluxo.
 - **Modelo e chave:** só em ambiente (`AI_MODEL`, `AI_API_KEY`), sem default no código. O valor previsto do modelo é `deepseek/deepseek-v4.1-flash-1017`.
+
+### Implementação F1–F7
+
+A migração desta feature é `009_medication_ai.sql`. A `008_caregiver_invites.sql` já está na `main` (PR #4). Não há corrida de número com um PR aberto.
+
+Sem `AI_API_KEY`, sem `AI_MODEL` ou com `AI_ENABLED` diferente de `1`, o processo sobe, a captura some da interface e as rotas de análise respondem 404. O restante do app não muda.
+
+Padrões usados nas perguntas que ficaram sem resposta:
+
+- Imagem de receita confirmada fica **24 horas** (`AI_PRESCRIPTION_RETAIN_DAYS=1`). Rascunho não confirmado expira em 24 horas. `0` apaga a receita no ato da confirmação.
+- Tetos por ambiente: 10 por hora, 30 por dia, US$ 5 no mês. Dá para mudar no `.env`.
+- Vários itens da mesma receita entram juntos (F6). Falha no meio desfaz o que essa confirmação criou.
+- “Por N dias” inclui o dia inicial.
+- Foto de embalagem vira a foto do catálogo. Foto de receita não.
+- Sem registro na base, o cadastro segue com o que foi lido e os campos oficiais vazios.
+- Classe terapêutica aparece só como dica. `indication` e posologia de referência ficam vazios (F8 não entrou).
+- Nada é gravado em `medications` ou `treatments` sem o POST de confirmação.
+
+Para ligar em produção, no `.env` da VPS: `AI_ENABLED=1`, `AI_API_KEY` da OpenRouter e `AI_MODEL=deepseek/deepseek-v4.1-flash-1017`. O workflow não envia esse arquivo.
 
 ## 14. Perguntas para o Altamir decidir
 

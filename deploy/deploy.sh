@@ -124,7 +124,7 @@ compose() {
   docker compose --ansi never --env-file .env --env-file image.env "$@"
 }
 
-mkdir -p /docker/medica-certo/data/postgres /docker/medica-certo/data/med-photos
+mkdir -p /docker/medica-certo/data/postgres /docker/medica-certo/data/med-photos /docker/medica-certo/data/intake-photos
 
 info "Login no GHCR…"
 printf '%s' "$ghcr_token" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
@@ -136,9 +136,13 @@ compose pull --policy always
 docker logout ghcr.io >/dev/null 2>&1 || true
 ghcr_logged_in=0
 
-info "Ajustando dono de data/med-photos (uid 1000 da imagem)…"
+info "Ajustando dono de data/med-photos e data/intake-photos (uid 1000 da imagem)…"
 docker run --rm --user 0 --entrypoint chown \
   -v /docker/medica-certo/data/med-photos:/data \
+  "${MEDICA_CERTO_IMAGE}:${MEDICA_CERTO_IMAGE_TAG}" \
+  -R 1000:1000 /data
+docker run --rm --user 0 --entrypoint chown \
+  -v /docker/medica-certo/data/intake-photos:/data \
   "${MEDICA_CERTO_IMAGE}:${MEDICA_CERTO_IMAGE_TAG}" \
   -R 1000:1000 /data
 

@@ -1,6 +1,7 @@
 import { getPool } from './db.mjs';
 import { notifyCaregiver } from './push.mjs';
 import { config } from './config.mjs';
+import { purgeExpiredIntakes } from './ai/drafts.mjs';
 
 /**
  * Claim due pending doses and send aggregated Web Push per caregiver.
@@ -138,6 +139,24 @@ export function startAlarmScheduler(app) {
     void tick();
   }, 3_000).unref?.();
 
+  const purge = async () => {
+    try {
+      await purgeExpiredIntakes();
+    } catch (err) {
+      app.log.error({ err }, 'intake purge failed');
+    }
+  };
+  const purgeId = setInterval(() => {
+    void purge();
+  }, 15 * 60 * 1000);
+  if (typeof purgeId.unref === 'function') purgeId.unref();
+  setTimeout(() => {
+    void purge();
+  }, 10_000).unref?.();
+
   app.log.info({ intervalMs: ms }, 'alarm scheduler started');
-  return () => clearInterval(id);
+  return () => {
+    clearInterval(id);
+    clearInterval(purgeId);
+  };
 }

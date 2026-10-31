@@ -38,6 +38,7 @@ services:
       - '${APP_PORT:-8080}:8080'
     volumes:
       - ./data/med-photos:/app/data/med-photos
+      - ./data/intake-photos:/app/data/intake-photos
     depends_on:
       postgres:
         condition: service_healthy

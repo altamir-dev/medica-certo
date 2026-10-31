@@ -75,6 +75,10 @@ export function mapMedication(row) {
       row.usual_interval_hours === null || row.usual_interval_hours === undefined
         ? null
         : Number(row.usual_interval_hours),
+    concentration: row.concentration ?? '',
+    presentation: row.presentation ?? '',
+    anvisaRegistry: row.anvisa_registry ?? '',
+    catalogOrigin: row.catalog_origin ?? 'manual',
     hasPhoto: Boolean(row.photo_path),
     createdAt:
       row.created_at instanceof Date
@@ -88,7 +92,8 @@ export function mapMedication(row) {
 }
 
 const SELECT_COLS = `id, name, active_ingredient, indication, reference_posology,
-  usual_interval_hours, photo_path, created_at, updated_at`;
+  usual_interval_hours, concentration, presentation, anvisa_registry,
+  catalog_origin, photo_path, created_at, updated_at`;
 
 /**
  * @param {string} caregiverId
@@ -172,9 +177,10 @@ export async function createMedication(caregiverId, input) {
     const result = await getPool().query(
       `INSERT INTO medications (
          caregiver_id, name, active_ingredient, indication,
-         reference_posology, usual_interval_hours
+         reference_posology, usual_interval_hours,
+         concentration, presentation, anvisa_registry, catalog_origin
        )
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${SELECT_COLS}`,
       [
         caregiverId,
@@ -183,6 +189,10 @@ export async function createMedication(caregiverId, input) {
         input.indication || null,
         input.referencePosology || null,
         input.usualIntervalHours,
+        input.concentration || null,
+        input.presentation || null,
+        input.anvisaRegistry || null,
+        input.catalogOrigin === 'ai_confirmed' ? 'ai_confirmed' : 'manual',
       ],
     );
     return { ok: true, medication: mapMedication(result.rows[0]) };
@@ -210,6 +220,9 @@ export async function updateMedication(caregiverId, medicationId, input) {
            indication = $5,
            reference_posology = $6,
            usual_interval_hours = $7,
+           concentration = $8,
+           presentation = $9,
+           anvisa_registry = $10,
            updated_at = now()
        WHERE id = $1 AND caregiver_id = $2
        RETURNING ${SELECT_COLS}`,
@@ -221,6 +234,9 @@ export async function updateMedication(caregiverId, medicationId, input) {
         input.indication || null,
         input.referencePosology || null,
         input.usualIntervalHours,
+        input.concentration || null,
+        input.presentation || null,
+        input.anvisaRegistry || null,
       ],
     );
     if (!result.rows[0]) return { ok: false, code: 'NOT_FOUND' };
@@ -434,6 +450,9 @@ export function parseMedicationBody(body) {
   const activeIngredient = asString(body.activeIngredient).trim();
   const indication = asString(body.indication).trim();
   const referencePosology = asString(body.referencePosology).trim();
+  const concentration = asString(body.concentration).trim();
+  const presentation = asString(body.presentation).trim();
+  const anvisaRegistry = asString(body.anvisaRegistry).trim();
 
   if (!name) fields.name = 'Informe o nome.';
   else if (name.length > 120) fields.name = 'Nome muito longo.';
@@ -446,6 +465,15 @@ export function parseMedicationBody(body) {
   }
   if (referencePosology.length > 2000) {
     fields.referencePosology = 'Posologia de referência muito longa.';
+  }
+  if (concentration.length > 80) {
+    fields.concentration = 'Concentração muito longa.';
+  }
+  if (presentation.length > 200) {
+    fields.presentation = 'Apresentação muito longa.';
+  }
+  if (anvisaRegistry && !/^\d{9}(\d{4})?$/.test(anvisaRegistry)) {
+    fields.anvisaRegistry = 'Registro Anvisa deve ter 9 ou 13 dígitos.';
   }
 
   /** @type {number | null} */
@@ -476,6 +504,11 @@ export function parseMedicationBody(body) {
       indication,
       referencePosology,
       usualIntervalHours,
+      concentration,
+      presentation,
+      anvisaRegistry,
+      catalogOrigin:
+        body.catalogOrigin === 'ai_confirmed' ? 'ai_confirmed' : 'manual',
     },
   };
 }

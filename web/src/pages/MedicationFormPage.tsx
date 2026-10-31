@@ -44,6 +44,9 @@ export function MedicationFormPage() {
   const [indication, setIndication] = useState('');
   const [referencePosology, setReferencePosology] = useState('');
   const [usualIntervalHours, setUsualIntervalHours] = useState('');
+  const [concentration, setConcentration] = useState('');
+  const [presentation, setPresentation] = useState('');
+  const [anvisaRegistry, setAnvisaRegistry] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
@@ -105,6 +108,9 @@ export function MedicationFormPage() {
             ? ''
             : String(medication.usualIntervalHours),
         );
+        setConcentration(medication.concentration ?? '');
+        setPresentation(medication.presentation ?? '');
+        setAnvisaRegistry(medication.anvisaRegistry ?? '');
         setHasPhoto(medication.hasPhoto);
         setUpdatedAt(medication.updatedAt);
       } catch (err) {
@@ -141,6 +147,9 @@ export function MedicationFormPage() {
       indication: indication.trim(),
       referencePosology: referencePosology.trim(),
       usualIntervalHours: interval,
+      concentration: concentration.trim(),
+      presentation: presentation.trim(),
+      anvisaRegistry: anvisaRegistry.trim(),
     };
   }
 
@@ -304,6 +313,46 @@ export function MedicationFormPage() {
                 {fieldErrors.activeIngredient}
               </span>
             ) : null}
+          </label>
+
+          <label className="patients-field">
+            <span>Concentração</span>
+            <input
+              className={`patients-input${
+                fieldErrors.concentration ? ' is-error' : ''
+              }`}
+              type="text"
+              value={concentration}
+              onChange={(e) => setConcentration(e.target.value)}
+              maxLength={80}
+              autoComplete="off"
+            />
+          </label>
+
+          <label className="patients-field">
+            <span>Apresentação</span>
+            <input
+              className="patients-input"
+              type="text"
+              value={presentation}
+              onChange={(e) => setPresentation(e.target.value)}
+              maxLength={200}
+              autoComplete="off"
+            />
+          </label>
+
+          <label className="patients-field">
+            <span>Registro Anvisa</span>
+            <input
+              className={`patients-input${
+                fieldErrors.anvisaRegistry ? ' is-error' : ''
+              }`}
+              type="text"
+              value={anvisaRegistry}
+              onChange={(e) => setAnvisaRegistry(e.target.value)}
+              inputMode="numeric"
+              autoComplete="off"
+            />
           </label>
 
           <label className="patients-field">
