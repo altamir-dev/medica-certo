@@ -11,6 +11,8 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/register',
 ]);
 
+const INVITE_LOOKUP = /^\/api\/auth\/invites\/[^/]+$/;
+
 /**
  * Protects `/api/*` except health + login + register (+ logout).
  * Attaches `request.caregiver` when authenticated.
@@ -24,7 +26,7 @@ async function authGuardPluginImpl(app) {
   app.addHook('preHandler', async (request, reply) => {
     const path = request.url.split('?')[0];
     if (!path.startsWith('/api/')) return;
-    if (PUBLIC_PATHS.has(path)) return;
+    if (PUBLIC_PATHS.has(path) || INVITE_LOOKUP.test(path)) return;
     if (path === '/api/auth/logout') return;
 
     const token = readSessionToken(request);

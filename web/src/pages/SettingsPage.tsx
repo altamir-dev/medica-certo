@@ -18,6 +18,7 @@ import {
 } from '../lib/registerSw';
 import { unlockAlarmAudio } from '../lib/alarmSound';
 import { useAlarms } from '../alarms/AlarmContext';
+import { InvitesCard } from './InvitesCard';
 import './PatientsPage.css';
 import './SettingsPage.css';
 
@@ -179,7 +180,9 @@ export function SettingsPage() {
             Configurações
           </h2>
           <p className="patients-toolbar__hint">
-            Alarmes globais e notificações neste aparelho
+            {auth.caregiver?.isAdmin
+              ? 'Convites, alarmes e notificações neste aparelho'
+              : 'Alarmes globais e notificações neste aparelho'}
           </p>
         </div>
       </div>
@@ -194,6 +197,8 @@ export function SettingsPage() {
           {message}
         </p>
       ) : null}
+
+      {auth.caregiver?.isAdmin ? <InvitesCard /> : null}
 
       <div className="portal-card settings-card">
         <h3 className="settings-card__title">Alarmes</h3>

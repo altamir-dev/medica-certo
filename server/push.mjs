@@ -347,7 +347,7 @@ export async function updateCaregiverAlarms(caregiverId, alarmsEnabled) {
     `UPDATE caregivers
      SET alarms_enabled = $2
      WHERE id = $1
-     RETURNING id, email, name, alarms_enabled`,
+     RETURNING id, email, name, alarms_enabled, is_admin`,
     [caregiverId, Boolean(alarmsEnabled)],
   );
   const row = rows[0];
@@ -357,5 +357,6 @@ export async function updateCaregiverAlarms(caregiverId, alarmsEnabled) {
     email: row.email,
     name: row.name,
     alarmsEnabled: row.alarms_enabled,
+    isAdmin: Boolean(row.is_admin),
   };
 }

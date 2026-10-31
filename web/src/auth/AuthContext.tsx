@@ -26,6 +26,7 @@ type AuthContextValue = {
     email: string;
     password: string;
     name: string;
+    inviteToken?: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -63,7 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (input: { email: string; password: string; name: string }) => {
+    async (input: {
+      email: string;
+      password: string;
+      name: string;
+      inviteToken?: string;
+    }) => {
       const { caregiver: me } = await apiRegister(input);
       setCaregiver(me);
       setStatus('authenticated');

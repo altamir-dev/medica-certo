@@ -73,3 +73,89 @@
   font-size: var(--font-xxs);
   font-weight: 600;
 }
+
+.invite-form,
+.invite-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.invite-form .patients-input,
+.invite-link .patients-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.invite-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.invite-row__main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.invite-row__email {
+  margin: 0;
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.invite-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-xxxs);
+  font-weight: 700;
+}
+
+.invite-status--pending {
+  background: var(--attention-soft);
+  color: var(--attention);
+}
+
+.invite-status--used {
+  background: var(--success-soft);
+  color: var(--success-dark);
+}
+
+.invite-status--expired,
+.invite-status--revoked {
+  background: var(--line);
+  color: var(--muted);
+}
+
+@media (max-width: 39em) {
+  .invite-form .patients-btn,
+  .invite-link .patients-btn,
+  .invite-row .patients-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .invite-form .patients-input,
+  .invite-link .patients-input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+}

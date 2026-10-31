@@ -3,6 +3,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth } from './auth/RequireAuth';
 import { PortalShell } from './shell/PortalShell';
 import { LoginPage } from './pages/LoginPage';
+import { InviteRegisterPage } from './pages/InviteRegisterPage';
 import { HomePage } from './pages/HomePage';
 import { PatientsPage } from './pages/PatientsPage';
 import { PatientFormPage } from './pages/PatientFormPage';
@@ -20,6 +21,7 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/convite/:token" element={<InviteRegisterPage />} />
 
           <Route element={<RequireAuth />}>
             <Route element={<PortalShell />}>
