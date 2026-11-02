@@ -28,6 +28,21 @@ function loadDotEnv() {
 
 loadDotEnv();
 
+/**
+ * @param {string} name
+ * @param {number} fallback
+ * @param {{ min?: number, max?: number }} [bounds]
+ */
+function intEnv(name, fallback, bounds = {}) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  const min = bounds.min ?? 0;
+  const max = bounds.max ?? Number.MAX_SAFE_INTEGER;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
 const nodeEnv = process.env.NODE_ENV ?? 'development';
 
 const cookieSecureEnv = process.env.COOKIE_SECURE;
@@ -59,4 +74,11 @@ export const config = {
   vapidSubject:
     process.env.VAPID_SUBJECT?.trim() || 'mailto:contato@altamir.dev',
   alarmSchedulerMs: Number(process.env.ALARM_SCHEDULER_MS ?? 45_000),
+  /** Extra pushes after the first, while the dose stays pending. 0 disables. */
+  alarmRepeatMax: intEnv('ALARM_REPEAT_MAX', 3, { min: 0, max: 10 }),
+  /** Minimum gap between dose-alarm pushes for the same caregiver. */
+  alarmRepeatIntervalMs: intEnv('ALARM_REPEAT_INTERVAL_MS', 120_000, {
+    min: 30_000,
+    max: 30 * 60 * 1000,
+  }),
 };

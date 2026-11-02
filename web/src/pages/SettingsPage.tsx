@@ -16,7 +16,7 @@ import {
   registerServiceWorker,
   urlBase64ToUint8Array,
 } from '../lib/registerSw';
-import { unlockAlarmAudio } from '../lib/alarmSound';
+import { previewAlarmSound, unlockAlarmAudio } from '../lib/alarmSound';
 import { useAlarms } from '../alarms/AlarmContext';
 import { InvitesCard } from './InvitesCard';
 import './PatientsPage.css';
@@ -154,6 +154,16 @@ export function SettingsPage() {
     }
   }
 
+  function testAlarm() {
+    setError(null);
+    const mode = previewAlarmSound(3000);
+    setMessage(
+      mode === 'ongoing'
+        ? 'O alarme de dose já está tocando.'
+        : 'Alarme de teste tocando por cerca de 3 segundos.',
+    );
+  }
+
   async function testPush() {
     setBusy(true);
     setMessage(null);
@@ -219,6 +229,37 @@ export function SettingsPage() {
 
       <div className="portal-card settings-card">
         <h3 className="settings-card__title">Notificações neste aparelho</h3>
+        <p className="settings-hint">
+          No Android, com o app fechado, o toque é o do canal de notificação
+          do sistema. O navegador não deixa o site escolher outro som nem
+          tocar o alarme em loop. O botão Testar alarme toca o som de dentro
+          do app, por cerca de 3 segundos.
+        </p>
+        <ol className="settings-steps">
+          <li>
+            Ajustes → Apps → Chrome ou o app Medica Certo instalado →
+            Notificações.
+          </li>
+          <li>
+            No canal do Medica Certo, escolha Alerta/Som, com importância
+            alta, e permita na tela de bloqueio.
+          </li>
+          <li>
+            Em Bateria, escolha Sem restrições para o aviso chegar com o app
+            fechado.
+          </li>
+        </ol>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="patients-btn patients-btn--secondary"
+            onClick={() => {
+              testAlarm();
+            }}
+          >
+            Testar alarme
+          </button>
+        </div>
         {loading ? (
           <p className="settings-hint">Carregando…</p>
         ) : (

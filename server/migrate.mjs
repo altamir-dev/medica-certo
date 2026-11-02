@@ -15,6 +15,9 @@ export async function runMigrations(logger = console) {
   const client = await pool.connect();
 
   try {
+    // Test files migrate the same database in parallel. Without this lock,
+    // two CREATE EXTENSION calls race on pg_extension_name_index.
+    await client.query('SELECT pg_advisory_lock(8040202602)');
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id text PRIMARY KEY,
@@ -53,6 +56,11 @@ export async function runMigrations(logger = console) {
       }
     }
   } finally {
+    try {
+      await client.query('SELECT pg_advisory_unlock(8040202602)');
+    } catch {
+      /* connection already closed */
+    }
     client.release();
   }
 }
