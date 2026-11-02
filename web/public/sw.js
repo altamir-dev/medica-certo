@@ -1,12 +1,13 @@
 /* Medica Certo service worker: shell cache + Web Push.
  * Never cache /api/* (private). On push: always showNotification on iOS;
  * desktop focused window gets postMessage instead (in-app banner/sound). */
-const VERSION = 'mc-shell-v1';
+const VERSION = 'mc-shell-v2';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/sounds/alarm.wav',
 ];
 const IOS = /iPhone|iPad|iPod/.test(self.navigator.userAgent);
 
@@ -96,14 +97,23 @@ self.addEventListener('push', (e) => {
         return;
       }
       // iOS / background: always showNotification (never silent push).
+      // Android plays the site notification-channel sound; the page cannot
+      // set a custom tone or loop it while the app is closed.
+      // Sem botões Tomar/Soneca: o payload não traz id da dose (pode haver
+      // várias) e o clique só abre o app — um botão desses pareceria registrar.
+      const doseAlarm = d.kind === 'dose_alarm';
       await self.registration.showNotification(d.title || 'Medica Certo', {
         body: d.body || 'Há uma dose para administrar.',
         tag: d.tag || 'mc-dose',
         renotify: true,
+        silent: false,
         icon: '/icons/icon-192.png',
         badge: '/icons/icon-192.png',
         timestamp: d.ts || Date.now(),
-        requireInteraction: d.kind === 'dose_alarm',
+        requireInteraction: doseAlarm,
+        ...(doseAlarm
+          ? { vibrate: [500, 200, 500, 200, 500, 200, 1000] }
+          : {}),
         data: { url: d.url || '/', kind: d.kind },
       });
       wins.forEach((w) =>

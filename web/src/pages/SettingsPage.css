@@ -38,7 +38,8 @@
   gap: var(--space-2);
 }
 
-.settings-ios {
+.settings-ios,
+.settings-steps {
   margin: 0;
   padding-left: 1.2em;
   font-size: var(--font-xxs);
